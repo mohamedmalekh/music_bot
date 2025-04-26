@@ -15,6 +15,7 @@ from io import BytesIO
 
 import pytz
 import feedparser
+from urllib.parse import urlparse, parse_qs
 
 from telegram import Bot, InputFile
 from telegram.error import RetryAfter, NetworkError, TimedOut
@@ -34,11 +35,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==== CONSTANTS & CONFIGURATION ====
-TOKEN            = os.environ.get("TELEGRAM_BOT_TOKEN")
-GROUP_ID_STR     = os.environ.get("TELEGRAM_GROUP_ID")
-SPOTIFY_ID       = os.environ.get("SPOTIFY_CLIENT_ID")
-SPOTIFY_SECRET   = os.environ.get("SPOTIFY_CLIENT_SECRET")
-YTDLP_COOKIES    = os.environ.get("YTDLP_COOKIES")  # chemin vers cookies.txt
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+GROUP_ID_STR = os.environ.get("TELEGRAM_GROUP_ID")
+SPOTIFY_ID = os.environ.get("SPOTIFY_CLIENT_ID")
+SPOTIFY_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
+YTDLP_COOKIES = os.environ.get("YTDLP_COOKIES")  # Path to cookies.txt for yt-dlp
 
 if not TOKEN:
     logger.error("FATAL: TELEGRAM_BOT_TOKEN not set")
@@ -59,11 +60,11 @@ YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",  # Mootjeyek - Topic
     "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",  # A.L.A - Topic
     "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",  # A.L.A
-    "https://www.youtube.com/@Mootjeyek",                        # handle
+    "https://www.youtube.com/@Mootjeyek",                        # moot jeyek
     "https://www.youtube.com/channel/UCTPID7oLcNr0H-VhAVIO8Jw",  # El Castro
     "https://www.youtube.com/channel/UC7UizrbfFRtxIiEVQmdpUMA",  # El Castro - Topic
     "https://www.youtube.com/channel/UCiqwANpD_MyogjjPJyrbB-A",  # ElGrandeToto - Topic
-    "https://www.youtube.com/@M.M.Hofficial"                    # handle
+    "https://www.youtube.com/@M.M.Hofficial"                     # M.M.H
 ]
 
 SPOTIFY_ARTISTS = [
@@ -73,10 +74,10 @@ SPOTIFY_ARTISTS = [
     "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"   # ElGrandeToto
 ]
 
-TIMEZONE      = pytz.timezone("Pacific/Kiritimati")
-HISTORY_FILE  = "processed.json"
-MAX_RETRIES   = 3
-RETRY_DELAY   = 10  # seconds
+TIMEZONE = pytz.timezone("Pacific/Kiritimati")
+HISTORY_FILE = "processed.json"
+MAX_RETRIES = 3
+RETRY_DELAY = 10  # seconds
 
 # ==== HISTORY HANDLING ====
 def load_history():
@@ -100,146 +101,105 @@ def now_kiritimati():
 def list_new_youtube_videos(channel_url):
     logger.info(f"Checking YouTube channel: {channel_url}")
 
-    # 1) on gère /channel/ID
+    # Resolve either /channel/ID or an @handle to a real channel ID
     if "/channel/" in channel_url:
-        channel_id = channel_url.rsplit("/channel/", 1)[1]
-
-    # 2) ou bien handle @… → on extrait le lien canonical
+        channel_id = channel_url.split("/channel/")[-1]
     elif "@" in channel_url:
         resp = requests.get(channel_url)
         if resp.status_code != 200:
-            logger.error(f"Could not fetch handle page: {resp.status_code}")
+            logger.error(f"Could not fetch handle page: {channel_url} → {resp.status_code}")
             return []
-        m = re.search(
-            r'<link[^>]+rel=["\']canonical["\'][^>]+href=["\']https?://www\.youtube\.com/channel/([A-Za-z0-9_-]+)["\']',
-            resp.text
-        )
+        m = re.search(r'"channelId"\s*:\s*"([A-Za-z0-9_-]+)"', resp.text)
         if not m:
-            logger.error("Could not resolve handle to channel ID")
+            logger.error(f"Could not resolve channel handle to ID: {channel_url}")
             return []
         channel_id = m.group(1)
-
     else:
-        logger.error("Invalid YouTube URL format")
+        logger.error(f"Invalid YouTube channel URL: {channel_url}")
         return []
 
     feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     feed = feedparser.parse(feed_url)
+
     if feed.bozo:
-        logger.error(f"RSS parse error: {feed.bozo_exception}")
+        logger.error(f"Error parsing feed: {feed.bozo_exception}")
         return []
 
     new_entries = []
     now_dt = now_kiritimati()
+
     for entry in feed.entries:
-        vid = entry.yt_videoid
-        pub = datetime.datetime(*entry.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
-        if vid not in processed["ytm"] and (now_dt - pub).days < 7:
-            new_entries.append((vid, entry.link, entry.title))
-            logger.info(f"New YouTube video: {entry.title}")
+        video_id = entry.yt_videoid
+        pub_time = datetime.datetime(*entry.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
+        delta = now_dt - pub_time
+
+        if video_id not in processed["ytm"] and delta.days < 7:
+            new_entries.append((video_id, entry.link, entry.title))
+            logger.info(f"Found new video: {entry.title}")
+
     return new_entries
 
 def fetch_youtube_mp3(video_url):
     logger.info(f"Downloading YouTube MP3: {video_url}")
 
-    with tempfile.TemporaryDirectory() as tmp:
-        out = os.path.join(tmp, "audio.%(ext)s")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = os.path.join(tmpdir, "audio.%(ext)s")
         ydl_opts = {
             "format": "bestaudio/best",
-            "outtmpl": out,
+            "outtmpl": output_path,
             "quiet": True,
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
                 "preferredquality": "192"
-            }]
+            }],
+            "cookiefile": YTDLP_COOKIES,
+            "sleep_interval": 5,
+            "max_sleep_interval": 10
         }
-
-        if YTDLP_COOKIES and os.path.isfile(YTDLP_COOKIES):
-            ydl_opts["cookiefile"] = YTDLP_COOKIES
-            logger.info(f"Using cookiefile: {YTDLP_COOKIES}")
-        else:
-            logger.warning("No valid YTDLP_COOKIES file; bot-checks may fail")
 
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
 
-        files = [f for f in os.listdir(tmp) if f.endswith(".mp3")]
-        if not files:
-            raise RuntimeError("MP3 not found after download")
-        with open(os.path.join(tmp, files[0]), "rb") as f:
+        mp3_files = [f for f in os.listdir(tmpdir) if f.endswith(".mp3")]
+        if not mp3_files:
+            raise Exception("No MP3 file found")
+
+        with open(os.path.join(tmpdir, mp3_files[0]), "rb") as f:
             return BytesIO(f.read())
 
 # ==== SPOTIFY FUNCTIONS ====
 try:
-    sp   = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-             client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
+        client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
     spdl = Spotdl(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET, headless=True)
 except Exception as e:
-    sp = spdl = None
-    logger.warning(f"Spotify init failed: {e}")
-
-def list_new_spotify_tracks(artist_url):
-    if not sp:
-        return []
-    logger.info(f"Checking Spotify artist: {artist_url}")
-    aid = artist_url.rstrip("/").split("/")[-1].split("?")[0]
-    new = []
-    now_dt = now_kiritimati()
-    try:
-        albums = sp.artist_albums(aid, album_type="single,album", country="US", limit=30)
-        for alb in albums.get("items", []):
-            rd = alb["release_date"]
-            p  = alb.get("release_date_precision", "day")
-            try:
-                d = {
-                    "day":   "%Y-%m-%d",
-                    "month": "%Y-%m",
-                    "year":  "%Y"
-                }[p]
-                dt = datetime.datetime.strptime(rd, d)
-            except Exception:
-                continue
-            pub = TIMEZONE.localize(dt)
-            if (now_dt - pub).days < 7:
-                for tr in sp.album_tracks(alb["id"])["items"]:
-                    tid = tr["id"]
-                    if tid not in processed["spotify"]:
-                        title = f"{', '.join(a['name'] for a in tr['artists'])} - {tr['name']}"
-                        new.append((tid, tr["external_urls"]["spotify"], title))
-                        logger.info(f"New Spotify track: {title}")
-    except Exception as e:
-        logger.error(f"Spotify API error: {e}")
-    return new
-
-def fetch_spotify_mp3(track_url):
-    if not spdl:
-        raise RuntimeError("Spotify downloader not initialized")
-    logger.info(f"Downloading Spotify MP3: {track_url}")
-    with tempfile.TemporaryDirectory() as tmp:
-        songs = spdl.search([track_url])
-        if not songs:
-            raise RuntimeError("No song found")
-        _, p = spdl.download(songs[0], output=os.path.join(tmp, "%(title)s.%(ext)s"))
-        with open(p, "rb") as f:
-            return BytesIO(f.read())
+    sp = None
+    spdl = None
+    logger.warning(f"Failed to initialize Spotify: {e}")
 
 # ==== TELEGRAM SENDER ====
 bot = Bot(TOKEN)
+
 async def send_audio(data: BytesIO, title: str):
-    name = "".join(c if c.isalnum() or c in " _-" else "_" for c in title) + ".mp3"
-    data.name = name[:50]
-    for i in range(MAX_RETRIES):
+    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)[:50] + ".mp3"
+    data.name = safe_title
+
+    for attempt in range(MAX_RETRIES):
         try:
             data.seek(0)
             await bot.send_audio(chat_id=GROUP_ID, audio=InputFile(data), caption=title)
             return True
         except RetryAfter as e:
+            logger.warning(f"Rate limit hit. Sleeping {e.retry_after}s")
             await asyncio.sleep(e.retry_after + 1)
-        except (NetworkError, TimedOut):
+        except (NetworkError, TimedOut) as e:
+            logger.warning(f"Network error: {e}. Retrying in {RETRY_DELAY}s")
             await asyncio.sleep(RETRY_DELAY)
         except Exception as e:
-            logger.error(f"Send failed: {e}")
+            logger.error(f"Failed to send audio: {e}")
+            if attempt == MAX_RETRIES - 1:
+                return False
     return False
 
 # ==== MAIN ORCHESTRATION ====
@@ -248,8 +208,8 @@ async def main():
     sent = 0
 
     # YouTube
-    for ch in YOUTUBE_CHANNELS:
-        for vid, url, title in list_new_youtube_videos(ch):
+    for channel in YOUTUBE_CHANNELS:
+        for vid, url, title in list_new_youtube_videos(channel):
             if vid in processed["ytm"]:
                 continue
             try:
@@ -263,25 +223,6 @@ async def main():
             except Exception as e:
                 logger.error(f"YouTube error ({vid}): {e}")
 
-    # Spotify
-    if sp and spdl:
-        for art in SPOTIFY_ARTISTS:
-            for tid, url, title in list_new_spotify_tracks(art):
-                if tid in processed["spotify"]:
-                    continue
-                try:
-                    data = fetch_spotify_mp3(url)
-                    if await send_audio(data, title):
-                        processed["spotify"].append(tid)
-                        sent += 1
-                        save_history()
-                    data.close()
-                    await asyncio.sleep(2)
-                except Exception as e:
-                    logger.error(f"Spotify error ({tid}): {e}")
-    else:
-        logger.warning("Skipping Spotify: missing credentials")
-
     if sent:
         save_history()
     logger.info(f"=== Bot finished: {sent} tracks sent ===")
@@ -291,6 +232,7 @@ if __name__ == "__main__":
         subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.DEVNULL)
         logger.info("ffmpeg is available")
     except Exception:
-        logger.error("ffmpeg not found; exiting")
+        logger.error("ffmpeg not found; audio conversions will fail")
         sys.exit(1)
+
     asyncio.run(main())
