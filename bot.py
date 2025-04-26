@@ -9,6 +9,8 @@ import tempfile
 import datetime
 import asyncio
 import logging
+import re
+import requests
 from io import BytesIO
 
 import pytz
@@ -37,6 +39,7 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GROUP_ID_STR = os.environ.get("TELEGRAM_GROUP_ID")
 SPOTIFY_ID = os.environ.get("SPOTIFY_CLIENT_ID")
 SPOTIFY_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
+YTDLP_COOKIES = os.environ.get("YTDLP_COOKIES")  # Path to cookies.txt for yt-dlp
 
 if not TOKEN:
     logger.error("FATAL: TELEGRAM_BOT_TOKEN not set")
@@ -97,18 +100,25 @@ def now_kiritimati():
 # ==== YOUTUBE FUNCTIONS ====
 def list_new_youtube_videos(channel_url):
     logger.info(f"Checking YouTube channel: {channel_url}")
-    
-    # Handle both channel URLs and custom URLs (@username)
+
+    # Resolve either /channel/ID or an @handle to a real channel ID
     if "/channel/" in channel_url:
         channel_id = channel_url.split("/channel/")[-1]
-        feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     elif "@" in channel_url:
-        username = channel_url.split("@")[-1]
-        feed_url = f"https://www.youtube.com/feeds/videos.xml?user={username}"
+        resp = requests.get(channel_url)
+        if resp.status_code != 200:
+            logger.error(f"Could not fetch handle page: {channel_url} → {resp.status_code}")
+            return []
+        m = re.search(r'"channelId"\s*:\s*"([A-Za-z0-9_-]+)"', resp.text)
+        if not m:
+            logger.error(f"Could not resolve channel handle to ID: {channel_url}")
+            return []
+        channel_id = m.group(1)
     else:
         logger.error(f"Invalid YouTube channel URL: {channel_url}")
         return []
 
+    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     feed = feedparser.parse(feed_url)
 
     if feed.bozo:
@@ -142,7 +152,9 @@ def fetch_youtube_mp3(video_url):
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
                 "preferredquality": "192"
-            }]
+            }],
+            # include cookies.txt if provided
+            **({"cookiefile": YTDLP_COOKIES} if YTDLP_COOKIES else {})
         }
 
         with YoutubeDL(ydl_opts) as ydl:
@@ -179,19 +191,18 @@ def list_new_spotify_tracks(artist_url):
         for album in albums.get("items", []):
             rd = album.get("release_date")
             precision = album.get("release_date_precision", "day")
-            
-            # Handle different date precisions
+
             try:
                 if precision == "day":
                     d = datetime.datetime.strptime(rd, "%Y-%m-%d")
                 elif precision == "month":
                     d = datetime.datetime.strptime(rd, "%Y-%m")
-                else:  # year
+                else:
                     d = datetime.datetime.strptime(rd, "%Y")
             except ValueError as e:
                 logger.error(f"Date parsing error: {e} for {rd} with precision {precision}")
                 continue
-                
+
             pub_time = TIMEZONE.localize(d)
             delta = now_dt - pub_time
 
@@ -212,21 +223,17 @@ def list_new_spotify_tracks(artist_url):
 def fetch_spotify_mp3(track_url):
     if not spdl:
         raise Exception("Spotify downloader not initialized")
-        
+
     logger.info(f"Downloading Spotify MP3: {track_url}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         songs = spdl.search([track_url])
         if not songs:
             raise Exception("No songs found")
-            
-        try:
-            _, path = spdl.download(songs[0], output=os.path.join(tmpdir, "%(title)s - %(artist)s.mp3"))
-            with open(path, "rb") as f:
-                return BytesIO(f.read())
-        except Exception as e:
-            logger.error(f"Error downloading Spotify track: {e}")
-            raise
+
+        _, path = spdl.download(songs[0], output=os.path.join(tmpdir, "%(title)s - %(artist)s.mp3"))
+        with open(path, "rb") as f:
+            return BytesIO(f.read())
 
 # ==== TELEGRAM SENDER ====
 bot = Bot(TOKEN)
@@ -248,7 +255,7 @@ async def send_audio(data: BytesIO, title: str):
             await asyncio.sleep(RETRY_DELAY)
         except Exception as e:
             logger.error(f"Failed to send audio: {e}")
-            if attempt == MAX_RETRIES - 1:  # Last attempt
+            if attempt == MAX_RETRIES - 1:
                 return False
     return False
 
@@ -267,9 +274,8 @@ async def main():
                 if await send_audio(data, title):
                     processed["ytm"].append(vid)
                     sent += 1
-                    save_history()  # Save after each successful send
+                    save_history()
                 data.close()
-                # Add a small delay between downloads to avoid rate limiting
                 await asyncio.sleep(2)
             except Exception as e:
                 logger.error(f"YouTube error ({vid}): {e}")
@@ -285,9 +291,8 @@ async def main():
                     if await send_audio(data, title):
                         processed["spotify"].append(tid)
                         sent += 1
-                        save_history()  # Save after each successful send
+                        save_history()
                     data.close()
-                    # Add a small delay between downloads to avoid rate limiting
                     await asyncio.sleep(2)
                 except Exception as e:
                     logger.error(f"Spotify error ({tid}): {e}")
@@ -295,7 +300,7 @@ async def main():
         logger.warning("Skipping Spotify checks due to missing credentials")
 
     if sent:
-        save_history()  # Final save to be safe
+        save_history()
     logger.info(f"=== Bot finished: {sent} tracks sent ===")
 
 if __name__ == "__main__":
@@ -304,6 +309,6 @@ if __name__ == "__main__":
         logger.info("ffmpeg is available")
     except Exception:
         logger.error("ffmpeg not found; audio conversions will fail")
-        sys.exit(1)  # Exit if ffmpeg is not available
+        sys.exit(1)
 
     asyncio.run(main())
