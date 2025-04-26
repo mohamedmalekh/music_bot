@@ -1,7 +1,6 @@
-# requirements.txt
-python-telegram-bot[aiohttp]>=20.0,<22.0  # Spécifiez une plage de versions compatible
-yt-dlp>=2023.10.13  # Utilisez une version récente ou spécifique si nécessaire
-spotdl>=4.0,<5.0    # Spécifiez une plage pour spotdl v4
-spotipy>=2.20.0
+python-telegram-bot
+feedparser
+spotipy
+spotdl
+yt-dlp
 pytz
-# asyncio, json, os, etc. sont inclus dans Python
