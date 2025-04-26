@@ -59,7 +59,7 @@ jobs:
           # Optionnel : Définir le fuseau horaire pour le système si nécessaire,
           # mais pytz dans le script devrait suffire.
           # TZ: 'Pacific/Kiritimati'
-        run: python main_bot.py # Assurez-vous que le nom du fichier correspond
+        run: python bot.py # Assurez-vous que le nom du fichier correspond
 
       # 6. Configure Git pour pouvoir commit les changements du fichier d'historique
       # Utilise un utilisateur bot générique fourni par GitHub Actions
