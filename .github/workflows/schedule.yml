@@ -14,10 +14,11 @@ permissions:
 
 jobs:
   run-bot:
+    runs-on: ubuntu-latest
+
     env:
       HIST_FILE: processed.json
-
-    runs-on: ubuntu-latest
+      YTDLP_COOKIES_FILE: cookies.txt
 
     steps:
       - name: Checkout repository
@@ -46,32 +47,33 @@ jobs:
           pip install -r requirements.txt
 
       - name: Write cookies.txt from secret
-        env:
-          YTDLP_COOKIES: ${{ secrets.YTDLP_COOKIES }}
         run: |
-          echo "$YTDLP_COOKIES" > cookies.txt
+          echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
         shell: bash
 
       - name: Run the bot script
         env:
-          TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_GROUP_ID:     ${{ secrets.TELEGRAM_GROUP_ID }}
-          SPOTIFY_CLIENT_ID:     ${{ secrets.SPOTIFY_CLIENT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_GROUP_ID: ${{ secrets.TELEGRAM_GROUP_ID }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-          YTDLP_COOKIES_FILE:    cookies.txt
         run: |
           echo "🚀 Starting bot.py"
           python bot.py
 
       - name: Configure Git
         run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Check for changes in history file
         id: git-check
         run: |
-          echo "changed=$(if git diff --quiet processed.json; then echo 'false'; else echo 'true'; fi)" >> $GITHUB_OUTPUT
+          if git diff --quiet processed.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Commit and push history file if changed
         if: steps.git-check.outputs.changed == 'true'
@@ -79,6 +81,5 @@ jobs:
           git add processed.json
           git commit -m "chore: update processed.json [skip ci]"
           for i in 1 2 3; do
-            git push && break
-            sleep 15
+            git push && break || sleep 15
           done
