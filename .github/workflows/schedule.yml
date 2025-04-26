@@ -46,12 +46,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Write cookies.txt from secret
+      - name: Write cookies.txt from secret (base64 decode)
         shell: bash
         run: |
-          printf '%s\n' "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
-        
-        
+          echo "${{ secrets.YTDLP_COOKIES_B64 }}" | base64 -d > cookies.txt
 
       - name: Run the bot script
         env:
