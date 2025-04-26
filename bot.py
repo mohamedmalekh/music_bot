@@ -54,21 +54,21 @@ if not SPOTIFY_ID or not SPOTIFY_SECRET:
     logger.warning("Spotify credentials missing; Spotify functionality will fail.")
 
 YOUTUBE_CHANNELS = [
-    "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
-    "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",
-    "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",
-    "https://www.youtube.com/@Mootjeyek",
-    "https://www.youtube.com/channel/UCTPID7oLcNr0H-VhAVIO8Jw",
-    "https://www.youtube.com/channel/UC7UizrbfFRtxIiEVQmdpUMA",
-    "https://www.youtube.com/channel/UCiqwANpD_MyogjjPJyrbB-A",
-    "https://www.youtube.com/@M.M.Hofficial"
+    "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",  # Mootjeyek - Topic
+    "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",  # A.L.A - Topic
+    "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",  # A.L.A
+    "https://www.youtube.com/@Mootjeyek",                        # moot jeyek
+    "https://www.youtube.com/channel/UCTPID7oLcNr0H-VhAVIO8Jw",  # El Castro
+    "https://www.youtube.com/channel/UC7UizrbfFRtxIiEVQmdpUMA",  # El Castro - Topic
+    "https://www.youtube.com/channel/UCiqwANpD_MyogjjPJyrbB-A",  # ElGrandeToto - Topic
+    "https://www.youtube.com/@M.M.Hofficial"                     # M.M.H
 ]
 
 SPOTIFY_ARTISTS = [
-    "https://open.spotify.com/artist/4VxyE4jGlkGfceluWCWZvH",
-    "https://open.spotify.com/artist/3MKpGPhBp9KeXjGooKHNDX",
-    "https://open.spotify.com/artist/5aj6jIshzpUh4WQvQ5EzKO",
-    "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"
+    "https://open.spotify.com/artist/4VxyE4jGlkGfceluWCWZvH",  # MOOTJEYEK
+    "https://open.spotify.com/artist/3MKpGPhBp9KeXjGooKHNDX",  # A.L.A
+    "https://open.spotify.com/artist/5aj6jIshzpUh4WQvQ5EzKO",  # El Castro
+    "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"   # ElGrandeToto
 ]
 
 TIMEZONE = pytz.timezone("Pacific/Kiritimati")
@@ -97,14 +97,18 @@ def now_kiritimati():
 # ==== YOUTUBE FUNCTIONS ====
 def list_new_youtube_videos(channel_url):
     logger.info(f"Checking YouTube channel: {channel_url}")
-
+    
+    # Handle both channel URLs and custom URLs (@username)
     if "/channel/" in channel_url:
         channel_id = channel_url.split("/channel/")[-1]
+        feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
+    elif "@" in channel_url:
+        username = channel_url.split("@")[-1]
+        feed_url = f"https://www.youtube.com/feeds/videos.xml?user={username}"
     else:
         logger.error(f"Invalid YouTube channel URL: {channel_url}")
         return []
 
-    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     feed = feedparser.parse(feed_url)
 
     if feed.bozo:
@@ -175,12 +179,19 @@ def list_new_spotify_tracks(artist_url):
         for album in albums.get("items", []):
             rd = album.get("release_date")
             precision = album.get("release_date_precision", "day")
-            if precision == "day":
-                d = datetime.datetime.strptime(rd, "%Y-%m-%d")
-            elif precision == "month":
-                d = datetime.datetime.strptime(rd, "%Y-%m")
-            else:
-                d = datetime.datetime.strptime(rd, "%Y")
+            
+            # Handle different date precisions
+            try:
+                if precision == "day":
+                    d = datetime.datetime.strptime(rd, "%Y-%m-%d")
+                elif precision == "month":
+                    d = datetime.datetime.strptime(rd, "%Y-%m")
+                else:  # year
+                    d = datetime.datetime.strptime(rd, "%Y")
+            except ValueError as e:
+                logger.error(f"Date parsing error: {e} for {rd} with precision {precision}")
+                continue
+                
             pub_time = TIMEZONE.localize(d)
             delta = now_dt - pub_time
 
@@ -199,15 +210,23 @@ def list_new_spotify_tracks(artist_url):
     return new_tracks
 
 def fetch_spotify_mp3(track_url):
+    if not spdl:
+        raise Exception("Spotify downloader not initialized")
+        
     logger.info(f"Downloading Spotify MP3: {track_url}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         songs = spdl.search([track_url])
         if not songs:
             raise Exception("No songs found")
-        _, path = spdl.download(songs[0], output=os.path.join(tmpdir, "%(title)s - %(artist)s.mp3"))
-        with open(path, "rb") as f:
-            return BytesIO(f.read())
+            
+        try:
+            _, path = spdl.download(songs[0], output=os.path.join(tmpdir, "%(title)s - %(artist)s.mp3"))
+            with open(path, "rb") as f:
+                return BytesIO(f.read())
+        except Exception as e:
+            logger.error(f"Error downloading Spotify track: {e}")
+            raise
 
 # ==== TELEGRAM SENDER ====
 bot = Bot(TOKEN)
@@ -229,7 +248,8 @@ async def send_audio(data: BytesIO, title: str):
             await asyncio.sleep(RETRY_DELAY)
         except Exception as e:
             logger.error(f"Failed to send audio: {e}")
-            return False
+            if attempt == MAX_RETRIES - 1:  # Last attempt
+                return False
     return False
 
 # ==== MAIN ORCHESTRATION ====
@@ -247,26 +267,35 @@ async def main():
                 if await send_audio(data, title):
                     processed["ytm"].append(vid)
                     sent += 1
+                    save_history()  # Save after each successful send
                 data.close()
+                # Add a small delay between downloads to avoid rate limiting
+                await asyncio.sleep(2)
             except Exception as e:
                 logger.error(f"YouTube error ({vid}): {e}")
 
     # Spotify
-    for artist in SPOTIFY_ARTISTS:
-        for tid, url, title in list_new_spotify_tracks(artist):
-            if tid in processed["spotify"]:
-                continue
-            try:
-                data = fetch_spotify_mp3(url)
-                if await send_audio(data, title):
-                    processed["spotify"].append(tid)
-                    sent += 1
-                data.close()
-            except Exception as e:
-                logger.error(f"Spotify error ({tid}): {e}")
+    if sp and spdl:
+        for artist in SPOTIFY_ARTISTS:
+            for tid, url, title in list_new_spotify_tracks(artist):
+                if tid in processed["spotify"]:
+                    continue
+                try:
+                    data = fetch_spotify_mp3(url)
+                    if await send_audio(data, title):
+                        processed["spotify"].append(tid)
+                        sent += 1
+                        save_history()  # Save after each successful send
+                    data.close()
+                    # Add a small delay between downloads to avoid rate limiting
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.error(f"Spotify error ({tid}): {e}")
+    else:
+        logger.warning("Skipping Spotify checks due to missing credentials")
 
     if sent:
-        save_history()
+        save_history()  # Final save to be safe
     logger.info(f"=== Bot finished: {sent} tracks sent ===")
 
 if __name__ == "__main__":
@@ -274,6 +303,7 @@ if __name__ == "__main__":
         subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.DEVNULL)
         logger.info("ffmpeg is available")
     except Exception:
-        logger.warning("ffmpeg not found; some audio conversions may fail")
+        logger.error("ffmpeg not found; audio conversions will fail")
+        sys.exit(1)  # Exit if ffmpeg is not available
 
     asyncio.run(main())
