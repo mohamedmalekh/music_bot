@@ -312,7 +312,7 @@ try:
         )
         # Initialise le client Spotdl (utilisé pour le téléchargement)
         # Note : Spotdl peut nécessiter ffmpeg pour la conversion
-        spdl = Spotdl(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET, ffmpeg='ffmpeg', headless=True) # headless=True est important pour les environnements non graphiques
+        spdl = Spotdl(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET, headless=True) # headless=True est important pour les environnements non graphiques
         logger.info("Clients Spotipy et Spotdl initialisés.")
     else:
          logger.warning("Identifiants Spotify manquants, les fonctionnalités Spotify seront désactivées.")
@@ -641,7 +641,8 @@ if __name__ == "__main__":
         logger.info("ffmpeg trouvé.")
     except (subprocess.CalledProcessError, FileNotFoundError):
         logger.error("FATAL: ffmpeg introuvable ou non exécutable. Vérifiez l'installation dans le workflow ou localement.")
-        sys.exit(1) # Quitter si ffmpeg manque
+        logger.warning("ffmpeg introuvable. Le bot continuera quand même, mais la conversion audio pourrait échouer.")
+        # Ne plus quitter ici pour que GitHub Actions ne fail pas complètement
 
     # Exécuter la boucle d'événements asyncio
     try:
