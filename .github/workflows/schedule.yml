@@ -29,7 +29,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4 # Utilisez la dernière version majeure de l'action
 
-      - name: Debug: lister les fichiers
+      - name: "Debug: lister les fichiers"
         run: |
           echo "Working dir: $(pwd)"
           ls -la .
