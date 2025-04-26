@@ -1,4 +1,3 @@
-# .github/workflows/bot_runner.yml
 name: Run Telegram Music Bot
 
 on:
