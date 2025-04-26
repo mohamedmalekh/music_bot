@@ -47,9 +47,11 @@ jobs:
           pip install -r requirements.txt
 
       - name: Write cookies.txt from secret
-        run: |
-          echo "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
         shell: bash
+        run: |
+          printf '%s\n' "${{ secrets.YTDLP_COOKIES }}" > cookies.txt
+        
+        
 
       - name: Run the bot script
         env:
