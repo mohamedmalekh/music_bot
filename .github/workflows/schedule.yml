@@ -1,0 +1,39 @@
+name: musicbot-schedule
+
+on:
+  schedule:
+    - cron: '*/2 * * * *'  # toutes les 2 min (UTC)
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - run: |
+          pip install --upgrade pip
+          pip install python-telegram-bot yt-dlp spotdl pytz spotipy
+
+      - name: Run bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_GROUP_ID: ${{ secrets.TELEGRAM_GROUP_ID }}
+          YOUTUBE_CHANNELS:   ${{ secrets.YOUTUBE_CHANNELS }}
+          SPOTIFY_ARTISTS:    ${{ secrets.SPOTIFY_ARTISTS }}
+          SPOTIFY_CLIENT_ID:     ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+        run: python bot.py
+
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add processed.json
+          git diff --quiet || git commit -m "Update processed.json"
+          git push

@@ -1,0 +1,5 @@
+python-telegram-bot
+yt-dlp
+spotdl
+pytz
+spotipy
