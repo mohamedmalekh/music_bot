@@ -29,6 +29,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4 # Utilisez la dernière version majeure de l'action
 
+      - name: Debug: lister les fichiers
+        run: |
+          echo "Working dir: $(pwd)"
+          ls -la .
+          ls -R .
       # 2. Configure l'environnement Python
       - name: Set up Python
         uses: actions/setup-python@v5 # Utilisez la dernière version majeure
