@@ -1,0 +1,4 @@
+yt-dlp --cookies-from-browser firefox \
+       --write-cookies cookies.txt \
+       --skip-download \
+       https://www.youtube.com/watch?v=2yilMAEG9Xw

@@ -9,6 +9,7 @@ import tempfile
 import datetime
 import asyncio
 import logging
+import shutil
 from io import BytesIO
 
 import pytz
@@ -36,9 +37,8 @@ TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GROUP_ID_STR = os.environ.get("TELEGRAM_GROUP_ID")
 SPOTIFY_ID = os.environ.get("SPOTIFY_CLIENT_ID")
 SPOTIFY_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
-
-# Naviguez directement en lien channel_id, pas de cookies depuis le CI
-COOKIES_BROWSER = None
+# Fichier de cookies exporté (Netscape format)
+COOKIES_FILE = os.environ.get("YTDLP_COOKIES_FILE", "cookies.txt")
 
 if not TOKEN:
     logger.error("FATAL: TELEGRAM_BOT_TOKEN not set")
@@ -67,14 +67,14 @@ YOUTUBE_CHANNELS = [
 SPOTIFY_ARTISTS = [
     "https://open.spotify.com/artist/4VxyE4jGlkGfceluWCWZvH",
     "https://open.spotify.com/artist/3MKpGPhBp9KeXjGooKHNDX",
-    "https://open.spotify.com/artist/5aj6jIshzpUh4WQvQ5EzKO",
+    "https://open.spotify.com/artist/5aj6jIshzpUh4WQvQvEzKO",
     "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"
 ]
 
 TIMEZONE = pytz.timezone("Pacific/Kiritimati")
 HISTORY_FILE = "processed.json"
 MAX_RETRIES = 3
-RETRY_DELAY = 10  # seconds
+RETRY_DELAY = 10  # secondes
 
 # ==== HISTORY HANDLING ====
 def load_history():
@@ -104,14 +104,12 @@ def now_kiritimati():
 # ==== YOUTUBE FUNCTIONS ====
 def list_new_youtube_videos(channel_url):
     logger.info(f"Checking YouTube channel: {channel_url}")
-    feed_url = None
     if "/channel/" in channel_url:
         channel_id = channel_url.split("/channel/")[-1].split('/')[0]
-        feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     else:
-        possible_id = channel_url.rstrip('/').split('/')[-1]
-        feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={possible_id}"
-        logger.warning(f"Unknown YouTube URL format, trying generic RSS: {feed_url}")
+        channel_id = channel_url.rstrip('/').split('/')[-1]
+        logger.warning("Unknown YouTube URL format, using last path segment as channel ID")
+    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
 
     try:
         feed = feedparser.parse(feed_url)
@@ -144,6 +142,7 @@ def list_new_youtube_videos(channel_url):
 def fetch_youtube_mp3(video_url):
     logger.info(f"Downloading YouTube MP3: {video_url}")
     with tempfile.TemporaryDirectory() as tmpdir:
+        ffmpeg_path = shutil.which("ffmpeg") or "ffmpeg"
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
@@ -152,9 +151,13 @@ def fetch_youtube_mp3(video_url):
                 "preferredcodec": "mp3",
                 "preferredquality": "192"
             }],
-            "ffmpeg_location": "ffmpeg",
-            # cookiesfrombrowser supprimé pour CI
+            "ffmpeg_location": ffmpeg_path,
         }
+        if os.path.isfile(COOKIES_FILE):
+            ydl_opts["cookiefile"] = COOKIES_FILE
+        else:
+            logger.warning(f"Cookie file '{COOKIES_FILE}' not found; YouTube may ask for sign-in.")
+
         try:
             with YoutubeDL(ydl_opts) as ydl:
                 ydl.download([video_url])
@@ -174,7 +177,6 @@ try:
     if SPOTIFY_ID and SPOTIFY_SECRET:
         sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
             client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
-        # Suppression de l’argument output=None
         spdl = Spotdl(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET, headless=True)
         logger.info("Spotify clients initialized.")
     else:
@@ -185,7 +187,8 @@ except Exception as e:
     logger.warning(f"Failed to init Spotify clients: {e}")
 
 def list_new_spotify_tracks(artist_url):
-    if not sp: return []
+    if not sp:
+        return []
     logger.info(f"Checking Spotify artist: {artist_url}")
     aid = artist_url.rstrip("/").split("/")[-1]
     new = []
@@ -232,7 +235,7 @@ def fetch_spotify_mp3(track_url):
         with open(path, "rb") as f:
             return BytesIO(f.read())
 
-# ==== TELEGRAM SENDER & MAIN ====  
+# ==== TELEGRAM SENDER & MAIN ====
 bot = Bot(TOKEN)
 
 async def send_audio(data: BytesIO, title: str):
