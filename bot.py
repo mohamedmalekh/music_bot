@@ -33,10 +33,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==== CONSTANTS & CONFIGURATION ====
-TOKEN            = os.environ.get("TELEGRAM_BOT_TOKEN")
-GROUP_ID_STR     = os.environ.get("TELEGRAM_GROUP_ID")
-SPOTIFY_ID       = os.environ.get("SPOTIFY_CLIENT_ID")
-SPOTIFY_SECRET   = os.environ.get("SPOTIFY_CLIENT_SECRET")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+GROUP_ID_STR = os.environ.get("TELEGRAM_GROUP_ID")
+SPOTIFY_ID = os.environ.get("SPOTIFY_CLIENT_ID")
+SPOTIFY_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
 
 if not TOKEN:
     logger.error("FATAL: TELEGRAM_BOT_TOKEN not set")
@@ -51,9 +51,9 @@ except ValueError:
     sys.exit(1)
 
 if not SPOTIFY_ID or not SPOTIFY_SECRET:
-    logger.warning("Spotify credentials missing; Spotify functionality may fail")
+    logger.warning("Spotify credentials missing; Spotify functionality will fail.")
 
-YOUTUBE_CHANS = [
+YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
     "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",
     "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",
@@ -64,218 +64,217 @@ YOUTUBE_CHANS = [
     "https://www.youtube.com/@M.M.Hofficial"
 ]
 
-SPOTIFY_ARTS = [
+SPOTIFY_ARTISTS = [
     "https://open.spotify.com/artist/4VxyE4jGlkGfceluWCWZvH",
     "https://open.spotify.com/artist/3MKpGPhBp9KeXjGooKHNDX",
     "https://open.spotify.com/artist/5aj6jIshzpUh4WQvQ5EzKO",
     "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"
 ]
 
-KIRI_TZ     = pytz.timezone("Pacific/Kiritimati")
-HIST_FILE   = "processed.json"
+TIMEZONE = pytz.timezone("Pacific/Kiritimati")
+HISTORY_FILE = "processed.json"
 MAX_RETRIES = 3
 RETRY_DELAY = 10  # seconds
 
 # ==== HISTORY HANDLING ====
 def load_history():
     try:
-        with open(HIST_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return {
-            "ytm": data.get("ytm", []),
-            "spotify": data.get("spotify", [])
-        }
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
         return {"ytm": [], "spotify": []}
 
 processed = load_history()
 
 def save_history():
-    try:
-        with open(HIST_FILE, "w", encoding="utf-8") as f:
-            json.dump(processed, f, indent=2)
-        logger.debug("History saved")
-    except Exception as e:
-        logger.error(f"Failed to save history: {e}")
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(processed, f, indent=2)
+    logger.info("History saved")
 
-def now_kiri():
-    return datetime.datetime.now(pytz.utc).astimezone(KIRI_TZ)
+def now_kiritimati():
+    return datetime.datetime.now(pytz.utc).astimezone(TIMEZONE)
 
-# ==== YOUTUBE VIA RSS ====
-def list_new_videos(channel_url):
-    logger.info(f"Checking YouTube RSS: {channel_url}")
-    # Determine channel ID
+# ==== YOUTUBE FUNCTIONS ====
+def list_new_youtube_videos(channel_url):
+    logger.info(f"Checking YouTube channel: {channel_url}")
+
     if "/channel/" in channel_url:
-        channel_id = channel_url.rstrip("/").split("/")[-1]
+        channel_id = channel_url.split("/channel/")[-1]
+    elif "/@" in channel_url:
+        logger.error("YouTube handle (like /@Mootjeyek) is not supported for RSS.")
+        return []
     else:
-        logger.error(f"Cannot parse channel_id from URL: {channel_url}")
+        logger.error(f"Invalid YouTube channel URL: {channel_url}")
         return []
 
     feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
     feed = feedparser.parse(feed_url)
+
     if feed.bozo:
-        logger.error(f"RSS parse error for {feed_url}: {feed.bozo_exception}")
+        logger.error(f"Error parsing feed: {feed.bozo_exception}")
         return []
 
     new_entries = []
-    now_dt = now_kiri()
+    now_dt = now_kiritimati()
+
     for entry in feed.entries:
-        # published_parsed is UTC
-        pub = datetime.datetime(*entry.published_parsed[:6], tzinfo=pytz.utc)
-        pub_kiri = pub.astimezone(KIRI_TZ)
-        vid_id = parse_qs(urlparse(entry.link).query).get("v", [""])[0]
-        if not vid_id or vid_id in processed["ytm"]:
-            continue
-        delta = now_dt - pub_kiri
-        if 0 <= delta.total_seconds() < datetime.timedelta(days=7).total_seconds():
-            new_entries.append((vid_id, entry.link, entry.title))
-            logger.info(f"Found new video: {entry.title} ({vid_id}), published {delta}")
+        video_id = entry.yt_videoid
+        pub_time = datetime.datetime(*entry.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
+        delta = now_dt - pub_time
+
+        if video_id not in processed["ytm"] and delta.days < 7:
+            new_entries.append((video_id, entry.link, entry.title))
+            logger.info(f"Found new video: {entry.title}")
+
     return new_entries
 
-def fetch_ytm_mp3(url):
-    logger.info(f"Downloading YouTube audio: {url}")
+def fetch_youtube_mp3(video_url):
+    logger.info(f"Downloading YouTube MP3: {video_url}")
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        outtpl = os.path.join(tmpdir, "audio.%(ext)s")
+        output_path = os.path.join(tmpdir, "audio.%(ext)s")
         ydl_opts = {
             "format": "bestaudio/best",
+            "outtmpl": output_path,
+            "quiet": True,
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-            "outtmpl": outtpl,
-            "quiet": True,
-            "no_warnings": True,
+                "preferredquality": "192"
+            }]
         }
+
         with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        # find mp3
+            ydl.download([video_url])
+
         mp3_files = [f for f in os.listdir(tmpdir) if f.endswith(".mp3")]
         if not mp3_files:
-            raise FileNotFoundError("No MP3 file found after yt-dlp")
-        path = os.path.join(tmpdir, mp3_files[0])
-        return BytesIO(open(path, "rb").read())
+            raise Exception("No MP3 file found")
 
-# ==== SPOTIFY ====
-sp = None
-spdl = None
+        with open(os.path.join(tmpdir, mp3_files[0]), "rb") as f:
+            return BytesIO(f.read())
+
+# ==== SPOTIFY FUNCTIONS ====
 try:
-    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-        client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
     spdl = Spotdl(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET, headless=True)
-    logger.info("Initialized Spotify clients")
 except Exception as e:
-    logger.warning(f"Spotify init failed: {e}")
+    sp = None
+    spdl = None
+    logger.warning(f"Failed to initialize Spotify: {e}")
 
-def list_new_spotify(artist_url):
+def list_new_spotify_tracks(artist_url):
     if not sp:
         return []
+
     logger.info(f"Checking Spotify artist: {artist_url}")
-    artist_id = artist_url.rstrip("/").split("/")[-1].split("?")[0]
-    now_dt = now_kiri()
+    artist_id = artist_url.split("/")[-1].split("?")[0]
     new_tracks = []
+    now_dt = now_kiritimati()
+
     try:
-        results = sp.artist_albums(artist_id, album_type="album,single", country="US", limit=30)
-        for alb in results.get("items", []):
-            rd = alb.get("release_date")
-            precision = alb.get("release_date_precision", "day")
-            try:
-                if precision == "day":
-                    d = datetime.datetime.fromisoformat(rd)
-                elif precision == "month":
-                    d = datetime.datetime.strptime(rd, "%Y-%m")
-                else:
-                    d = datetime.datetime.strptime(rd, "%Y")
-                pub_kiri = KIRI_TZ.localize(d)
-            except Exception:
-                continue
-            delta = now_dt - pub_kiri
-            if 0 <= delta.total_seconds() < datetime.timedelta(days=7).total_seconds():
-                tracks = sp.album_tracks(alb["id"]).get("items", [])
-                for tr in tracks:
-                    tid = tr["id"]
-                    if tid in processed["spotify"]:
-                        continue
-                    title = f\"{', '.join(a['name'] for a in tr['artists'])} - {tr['name']}\"
-                    new_tracks.append((tid, tr["external_urls"]["spotify"], title))
-                    logger.info(f"Found new Spotify track: {title} ({tid}), published {delta}")
+        albums = sp.artist_albums(artist_id, album_type="single,album", country="US", limit=30)
+        for album in albums.get("items", []):
+            release_date = album.get("release_date")
+            release_precision = album.get("release_date_precision", "day")
+
+            if release_precision == "day":
+                release = datetime.datetime.strptime(release_date, "%Y-%m-%d")
+            elif release_precision == "month":
+                release = datetime.datetime.strptime(release_date, "%Y-%m")
+            else:
+                release = datetime.datetime.strptime(release_date, "%Y")
+
+            release = TIMEZONE.localize(release)
+
+            delta = now_dt - release
+            if delta.days < 7:
+                tracks = sp.album_tracks(album["id"]).get("items", [])
+                for track in tracks:
+                    track_id = track["id"]
+                    if track_id not in processed["spotify"]:
+                        title = f"{', '.join(a['name'] for a in track['artists'])} - {track['name']}"
+                        url = track["external_urls"]["spotify"]
+                        new_tracks.append((track_id, url, title))
+                        logger.info(f"Found new track: {title}")
+
     except Exception as e:
-        logger.warning(f"Spotify API error for {artist_url}: {e}")
+        logger.error(f"Spotify API error: {e}")
+
     return new_tracks
 
-def fetch_spotify_mp3(url):
-    logger.info(f"Downloading Spotify track: {url}")
+def fetch_spotify_mp3(track_url):
+    logger.info(f"Downloading Spotify MP3: {track_url}")
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        songs = spdl.search([url])
+        songs = spdl.search([track_url])
         if not songs:
-            raise Exception("Spotdl: no song found")
-        _, path = spdl.download(songs[0], output=f"{tmpdir}/%(title)s - %(artist)s.mp3")
-        return BytesIO(open(path, "rb").read())
+            raise Exception("No songs found")
+
+        _, path = spdl.download(songs[0], output=os.path.join(tmpdir, "%(title)s - %(artist)s.mp3"))
+
+        with open(path, "rb") as f:
+            return BytesIO(f.read())
 
 # ==== TELEGRAM SENDER ====
 bot = Bot(TOKEN)
 
-async def send_audio(io_data: BytesIO, title: str) -> bool:
-    safe_name = "".join(c for c in title if c.isalnum() or c in (" ", "-", "_"))[:50] + ".mp3"
-    io_data.name = safe_name
-    for attempt in range(MAX_RETRIES + 1):
+async def send_audio(data: BytesIO, title: str):
+    safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)[:50] + ".mp3"
+    data.name = safe_title
+
+    for attempt in range(MAX_RETRIES):
         try:
-            io_data.seek(0)
-            await bot.send_audio(chat_id=GROUP_ID, audio=InputFile(io_data), caption=title)
+            data.seek(0)
+            await bot.send_audio(chat_id=GROUP_ID, audio=InputFile(data), caption=title)
             return True
         except RetryAfter as e:
-            logger.warning(f"Rate limited, retry after {e.retry_after}s")
+            logger.warning(f"Rate limit hit. Sleeping {e.retry_after}s")
             await asyncio.sleep(e.retry_after + 1)
         except (NetworkError, TimedOut) as e:
-            logger.warning(f"Network error: {e}, retrying in {RETRY_DELAY}s")
+            logger.warning(f"Network error: {e}. Retrying in {RETRY_DELAY}s")
             await asyncio.sleep(RETRY_DELAY)
         except Exception as e:
             logger.error(f"Failed to send audio: {e}")
             return False
     return False
 
-# ==== MAIN ORCHESTRATION ====
+# ==== MAIN ====
 async def main():
-    logger.info("=== Bot start ===")
-    sent = 0
+    logger.info("=== Bot started ===")
+    count = 0
 
-    # YouTube
-    for ch in YOUTUBE_CHANS:
-        for vid, url, title in list_new_videos(ch):
-            if vid in processed["ytm"]:
-                continue
-            try:
-                data = fetch_ytm_mp3(url)
-                if await send_audio(data, title):
-                    processed["ytm"].append(vid)
-                    sent += 1
-                data.close()
-            except Exception as e:
-                logger.error(f"YouTube error ({vid}): {e}")
+    for channel in YOUTUBE_CHANNELS:
+        for video_id, url, title in list_new_youtube_videos(channel):
+            if video_id not in processed["ytm"]:
+                try:
+                    data = fetch_youtube_mp3(url)
+                    if await send_audio(data, title):
+                        processed["ytm"].append(video_id)
+                        count += 1
+                except Exception as e:
+                    logger.error(f"Error downloading YouTube video: {e}")
 
-    # Spotify
-    for art in SPOTIFY_ARTS:
-        for tid, url, title in list_new_spotify(art):
-            if tid in processed["spotify"]:
-                continue
-            try:
-                data = fetch_spotify_mp3(url)
-                if await send_audio(data, title):
-                    processed["spotify"].append(tid)
-                    sent += 1
-                data.close()
-            except Exception as e:
-                logger.error(f"Spotify error ({tid}): {e}")
+    for artist in SPOTIFY_ARTISTS:
+        for track_id, url, title in list_new_spotify_tracks(artist):
+            if track_id not in processed["spotify"]:
+                try:
+                    data = fetch_spotify_mp3(url)
+                    if await send_audio(data, title):
+                        processed["spotify"].append(track_id)
+                        count += 1
+                except Exception as e:
+                    logger.error(f"Error downloading Spotify track: {e}")
 
-    if sent:
+    if count > 0:
         save_history()
-    logger.info(f"=== Bot done, sent {sent} tracks ===")
+    logger.info(f"=== Bot finished: {count} tracks sent ===")
 
 if __name__ == "__main__":
-    # verify ffmpeg
     try:
         subprocess.run(["ffmpeg", "-version"], check=True, stdout=subprocess.DEVNULL)
-        logger.info("ffmpeg found")
+        logger.info("ffmpeg is available")
     except Exception:
-        logger.warning("ffmpeg not found; audio conversion may fail")
+        logger.warning("ffmpeg is missing! Some audio conversion may fail.")
+
     asyncio.run(main())
