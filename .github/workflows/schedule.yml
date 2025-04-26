@@ -1,39 +1,98 @@
-name: musicbot-schedule
+# .github/workflows/bot_runner.yml
+name: Run Telegram Music Bot
 
 on:
   schedule:
-    - cron: '*/2 * * * *'  # toutes les 2 min (UTC)
+    # Exécute toutes les 6 heures (à 0 minutes après l'heure)
+    # Utilisez https://crontab.guru/ pour générer votre expression cron
+    - cron: '0 */6 * * *'
+    # Exemple : Toutes les heures : '0 * * * *'
+    # Exemple : Tous les jours à 8h UTC : '0 8 * * *'
+
+  # Permet de déclencher manuellement le workflow depuis l'onglet Actions de GitHub
+  workflow_dispatch:
+
+# Empêche les exécutions multiples du même workflow de se chevaucher
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Permissions nécessaires pour pouvoir 'commit' et 'push' le fichier d'historique
+permissions:
+  contents: write
 
 jobs:
   run-bot:
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-latest # Utilise la dernière image Ubuntu disponible
     steps:
-      - uses: actions/checkout@v3
+      # 1. Récupère le code de votre dépôt
+      - name: Checkout repository
+        uses: actions/checkout@v4 # Utilisez la dernière version majeure de l'action
+
+      # 2. Configure l'environnement Python
+      - name: Set up Python
+        uses: actions/setup-python@v5 # Utilisez la dernière version majeure
         with:
-          persist-credentials: true
+          python-version: '3.10' # Choisissez la version de Python que vous utilisez (ex: 3.9, 3.10, 3.11)
+          cache: 'pip' # Met en cache les dépendances pour accélérer les exécutions futures
 
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.x'
+      # 3. Installe ffmpeg (nécessaire pour yt-dlp et spotdl pour la conversion audio)
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends ffmpeg
 
-      - run: |
-          pip install --upgrade pip
-          pip install python-telegram-bot yt-dlp spotdl pytz spotipy
+      # 4. Installe les dépendances Python listées dans requirements.txt
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Run bot
+      # 5. Exécute votre script Python principal
+      - name: Run the bot script
         env:
+          # Fournit les secrets GitHub comme variables d'environnement au script
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_GROUP_ID: ${{ secrets.TELEGRAM_GROUP_ID }}
-          YOUTUBE_CHANNELS:   ${{ secrets.YOUTUBE_CHANNELS }}
-          SPOTIFY_ARTISTS:    ${{ secrets.SPOTIFY_ARTISTS }}
-          SPOTIFY_CLIENT_ID:     ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-        run: python bot.py
+          # Optionnel : Définir le fuseau horaire pour le système si nécessaire,
+          # mais pytz dans le script devrait suffire.
+          # TZ: 'Pacific/Kiritimati'
+        run: python main_bot.py # Assurez-vous que le nom du fichier correspond
 
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "actions@github.com"
-          git add processed.json
-          git diff --quiet || git commit -m "Update processed.json"
-          git push
+      # 6. Configure Git pour pouvoir commit les changements du fichier d'historique
+      # Utilise un utilisateur bot générique fourni par GitHub Actions
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      # 7. Vérifie si le fichier d'historique a été modifié par le script
+      - name: Check for changes in history file
+        id: git-check
+        # Définit une variable d'environnement pour le nom du fichier historique
+        # Exécute git diff --quiet. S'il y a des différences, la commande échoue (code de sortie non nul),
+        # et '|| echo true' est exécuté, définissant 'changed' à 'true'.
+        # Sinon (pas de différence), la commande réussit (code 0), et 'changed' n'est pas mis à 'true'.
+        run: echo "changed=$(if git diff --quiet ${{ env.HIST_FILE }}; then echo "false"; else echo "true"; fi)" >> $GITHUB_OUTPUT
+        env:
+          HIST_FILE: processed.json # Doit correspondre à la constante dans le script Python
+
+      # 8. Commit et Push le fichier d'historique SEULEMENT s'il a changé
+      - name: Commit and push history file if changed
+        # Condition : ne s'exécute que si l'étape 'git-check' a produit changed='true'
+        if: steps.git-check.outputs.changed == 'true'
+        run: |
+          echo "History file changed, committing updates..."
+          git add ${{ env.HIST_FILE }}
+          # Le message de commit inclut [skip ci] pour éviter de déclencher d'autres workflows (si configuré ainsi)
+          git commit -m "Update history file [skip ci]"
+          # Ajoute une boucle de tentatives pour le push en cas de problèmes réseau temporaires
+          for i in 1 2 3; do
+            git push && break # Quitte la boucle si le push réussit
+            echo "Push attempt $i failed, retrying in 15 seconds..."
+            sleep 15
+          done
+        env:
+          HIST_FILE: processed.json # Assurez-vous que cela correspond au script
