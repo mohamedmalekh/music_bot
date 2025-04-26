@@ -63,25 +63,21 @@ if not SPOTIFY_SECRET:
 # !! REMPLACEZ CES URL PAR LES VRAIES URL DES CHAINES YOUTUBE !!
 # Exemple : "https://www.youtube.com/channel/UCxxxxxxxxxxxxxxx" ou "https://www.youtube.com/@NomChaine"
 YOUTUBE_CHANS = [
-    "https://www.youtube.com/channel/ remplacer_par_vrai_id_chaine_1", # Exemple: Mootjeyek - Topic
-    "https://www.youtube.com/channel/ remplacer_par_vrai_id_chaine_2", # Exemple: A.L.A - Topic
-    "https://www.youtube.com/@remplacer_par_vrai_nom_chaine_3",        # Exemple: A.L.A
-    "https://www.youtube.com/@remplacer_par_vrai_nom_chaine_4",        # Exemple: Moot jeyek
-    "https://www.youtube.com/@remplacer_par_vrai_nom_chaine_5",        # Exemple: El Castro
-    "https://www.youtube.com/channel/ remplacer_par_vrai_id_chaine_6", # Exemple: El Castro - Topic
-    "https://www.youtube.com/channel/ remplacer_par_vrai_id_chaine_7", # Exemple: ElGrandeToto - Topic
-    # Ajoutez d'autres URL réelles ici
+    "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",   # Mootjeyek - Topic
+    "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",  # A.L.A - Topic
+    "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",  # A.L.A
+    "https://www.youtube.com/@Mootjeyek",  # Moot jeyek
+    "https://www.youtube.com/channel/UCTPID7oLcNr0H-VhAVIO8Jw",  # El Castro
+    "https://www.youtube.com/channel/UC7UizrbfFRtxIiEVQmdpUMA",  # El Castro - Topic
+    "https://www.youtube.com/channel/UCiqwANpD_MyogjjPJyrbB-A",  # ElGrandeToto - Topic
+    "https://www.youtube.com/@M.M.Hofficial"   # M.M.H
 ]
 
-# --- Spotify Artists ---
-# !! REMPLACEZ CES URL PAR LES VRAIES URL DES ARTISTES SPOTIFY !!
-# Exemple : "https://open.spotify.com/artist/xxxxxxxxxxxxxxx"
 SPOTIFY_ARTS = [
-    "https://open.spotify.com/artist/remplacer_par_vrai_id_artiste_1", # MOOTJEYEK
-    "https://open.spotify.com/artist/remplacer_par_vrai_id_artiste_2", # A.L.A
-    "https://open.spotify.com/artist/remplacer_par_vrai_id_artiste_3", # El Castro
-    "https://open.spotify.com/artist/remplacer_par_vrai_id_artiste_4"  # ElGrandeToto
-    # Ajoutez d'autres URL réelles ici
+    "https://open.spotify.com/artist/4VxyE4jGlkGfceluWCWZvH",  # MOOTJEYEK
+    "https://open.spotify.com/artist/3MKpGPhBp9KeXjGooKHNDX",  # A.L.A
+    "https://open.spotify.com/artist/5aj6jIshzpUh4WQvQ5EzKO",  # El Castro
+    "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"   # ElGrandeToto
 ]
 
 # --- Other Settings ---
