@@ -1,10 +1,13 @@
 import os, json, subprocess, tempfile, datetime
 from io import BytesIO
 import pytz
+import yt_dlp
 from telegram import Bot, InputFile
 from yt_dlp import YoutubeDL
 from spotdl import Spotdl
 import spotipy
+import logging
+import re
 from spotipy.oauth2 import SpotifyClientCredentials
 
 YOUTUBE_CHANS = [
@@ -42,18 +45,35 @@ def save_hist(): json.dump(processed, open(HIST_FILE,"w"), indent=2)
 
 # 3) YouTube Music → liste des nouvelles vidéos
 def list_new_videos(channel_url):
-    with YoutubeDL({"quiet":True,"skip_download":True}) as ydl:
-        info = ydl.extract_info(f"{channel_url}/videos", download=False)
+    # options pour silencer yt-dlp et ignorer les erreurs
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "ignoreerrors": True,
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        try:
+            info = ydl.extract_info(f"{channel_url}/videos", download=False)
+        except Exception:
+            # si extraction impossible, on considère qu'il n'y a rien à traiter
+            return []
+
     now_kiri = datetime.datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(KIRI_TZ)
-    out=[]
-    for e in info.get("entries",[]):
-        vid=e.get("id"); ts=e.get("release_timestamp") or e.get("timestamp")
-        if not ts or vid in processed["ytm"]: continue
-        dt_kiri = datetime.datetime.fromtimestamp(ts,tz=pytz.utc).astimezone(KIRI_TZ)
-        if dt_kiri<=now_kiri:
-            url=e.get("webpage_url",f"https://www.youtube.com/watch?v={vid}")
-            out.append((vid,url))
-    return out
+    new_videos = []
+    for entry in info.get("entries", []) or []:
+        vid = entry.get("id")
+        ts  = entry.get("release_timestamp") or entry.get("timestamp")
+        if not ts or vid in processed["ytm"]:
+            continue
+        dt_kiri = datetime.datetime.fromtimestamp(ts, tz=pytz.utc).astimezone(KIRI_TZ)
+        if dt_kiri <= now_kiri:
+            url = entry.get("webpage_url", f"https://www.youtube.com/watch?v={vid}")
+            new_videos.append((vid, url))
+
+    return new_videos
+
+
 
 def fetch_ytm_mp3(url):
     p1 = subprocess.Popen(["yt-dlp","-f","bestaudio","-o","-","--quiet",url], stdout=subprocess.PIPE)
