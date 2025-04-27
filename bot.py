@@ -140,14 +140,14 @@ def fetch_youtube_mp3(video_url):
                 "preferredcodec": "mp3",
                 "preferredquality": "192",
             }],
-            # --- PAS DE COOKIES, on imite le client Android ---
-            "extractor_args": {
-                "youtube": {"player_client": "ANDROID"}
-            },
+            # --- IMITER LE CLIENT ANDROID SANS COOKIE ---
+            "player_client": "android",
             "http_headers": {
-                "User-Agent": ("Mozilla/5.0 (Linux; Android 8.0; Mobile) "
-                               "AppleWebKit/537.36 (KHTML, like Gecko) "
-                               "Chrome/104.0.0.0 Mobile Safari/537.36")
+                "User-Agent": (
+                    "Mozilla/5.0 (Linux; Android 8.0; Mobile) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/104.0.0.0 Mobile Safari/537.36"
+                )
             },
             "ffmpeg_location": ffmpeg_path,
             "nocheckcertificate": True,
@@ -235,7 +235,7 @@ async def send_audio(data: BytesIO, title: str):
     filename = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)[:60] + ".mp3"
     data.name = filename
     data.seek(0)
-    for i in range(MAX_RETRIES):
+    for _ in range(MAX_RETRIES):
         try:
             await bot.send_audio(
                 chat_id=GROUP_ID,
