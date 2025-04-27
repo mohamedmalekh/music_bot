@@ -134,36 +134,67 @@ def list_new_youtube_videos(channel_url):
             logger.info(f"New YouTube video: {entry.title}")
     return new_entries
 
+from yt_dlp import YoutubeDL
+import tempfile
+import shutil
+import os
+import subprocess
+from io import BytesIO
+import logging
+
+logger = logging.getLogger(__name__)
+
 def fetch_youtube_mp3(video_url: str) -> BytesIO:
-    logger.info(f"Downloading YouTube MP3 via pytube: {video_url}")
+    """
+    Télécharge l’audio d’une vidéo YouTube via yt-dlp (sans cookies),
+    en forçant le client Android, puis retourne un BytesIO MP3.
+    """
+    logger.info(f"Downloading YouTube MP3: {video_url}")
     with tempfile.TemporaryDirectory() as tmpdir:
-        # 1) Sélection du meilleur flux audio
-        yt = YouTube(video_url)
-        audio_stream = yt.streams.filter(only_audio=True).order_by("abr").desc().first()
-        if not audio_stream:
-            raise FileNotFoundError(f"No audio stream found for {video_url}")
+        # Configuration de yt-dlp
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }],
+            "extractor_args": {
+                # Doit être une liste de chaînes "clé=valeur"
+                "youtube": [
+                    "player_client=ANDROID"
+                ]
+            },
+            "http_headers": {
+                # User-Agent mobile pour éviter les captchas
+                "User-Agent": (
+                    "Mozilla/5.0 (Linux; Android 9; Mobile) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/104.0.0.0 Mobile Safari/537.36"
+                )
+            },
+            # Emplacement de ffmpeg
+            "ffmpeg_location": shutil.which("ffmpeg") or "ffmpeg",
+            "nocheckcertificate": True,
+        }
 
-        # 2) Téléchargement dans tmpdir
-        tmp_audio_path = audio_stream.download(output_path=tmpdir, filename="audio")
+        # Téléchargement & conversion
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
 
-        # 3) Conversion en MP3 via ffmpeg
-        mp3_path = os.path.join(tmpdir, "audio.mp3")
-        ffmpeg_exe = shutil.which("ffmpeg") or "ffmpeg"
-        subprocess.run([
-            ffmpeg_exe,
-            "-i", tmp_audio_path,
-            "-vn",           # aucun flux vidéo
-            "-ab", "192k",   # bitrate audio
-            mp3_path
-        ], check=True)
+        # Récupération du fichier MP3 généré
+        mp3_file = next(f for f in os.listdir(tmpdir) if f.lower().endswith(".mp3"))
+        mp3_path = os.path.join(tmpdir, mp3_file)
 
-        # 4) Chargement du MP3 en mémoire
+        # Chargement en mémoire
         bio = BytesIO()
         with open(mp3_path, "rb") as f:
             bio.write(f.read())
-        bio.name = "audio.mp3"
+        bio.name = mp3_file
         bio.seek(0)
         return bio
+
 
 # ==== SPOTIFY FUNCTIONS ====
 try:
