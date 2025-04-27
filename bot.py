@@ -140,8 +140,15 @@ def fetch_youtube_mp3(video_url):
                 "preferredcodec": "mp3",
                 "preferredquality": "192",
             }],
-            # --- IMITER LE CLIENT ANDROID SANS COOKIE ---
-            "player_client": "android",
+            # → On passe player_client dans extractor_args
+            "extractor_args": {
+                "youtube": {
+                    "player_client": "ANDROID",
+                    "base_url": "https://yewtu.be",
+                    # optionnel : si ça bloque encore, on ajoute un front-end Invidious
+                    # "base_url": "https://yewtu.be"
+                }
+            },
             "http_headers": {
                 "User-Agent": (
                     "Mozilla/5.0 (Linux; Android 8.0; Mobile) "
@@ -164,6 +171,7 @@ def fetch_youtube_mp3(video_url):
         path = os.path.join(tmpdir, mp3s[0])
         with open(path, "rb") as f:
             return BytesIO(f.read())
+
 
 # ==== SPOTIFY FUNCTIONS ====
 try:
