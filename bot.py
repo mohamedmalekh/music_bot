@@ -27,11 +27,6 @@ import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from spotdl import Spotdl
 
-from yt_dlp import YoutubeDL
-from yt_dlp.utils import DownloadError
-from yt_dlp.postprocessor.common import PostProcessor
-from yt_dlp.utils import sanitize_filename
-from yt_dlp.utils import YoutubeDL
 # ==== LOGGING CONFIGURATION ====
 logging.basicConfig(
     level=logging.INFO,
