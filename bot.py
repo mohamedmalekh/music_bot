@@ -10,7 +10,13 @@ import asyncio
 import logging
 import shutil
 from io import BytesIO
-
+from pytube import YouTube
+import shutil
+import subprocess
+import tempfile
+from io import BytesIO
+import os
+import logging
 import pytz
 import feedparser
 
@@ -128,48 +134,36 @@ def list_new_youtube_videos(channel_url):
             logger.info(f"New YouTube video: {entry.title}")
     return new_entries
 
-def fetch_youtube_mp3(video_url):
-    logger.info(f"Downloading YouTube MP3: {video_url}")
+def fetch_youtube_mp3(video_url: str) -> BytesIO:
+    logger.info(f"Downloading YouTube MP3 via pytube: {video_url}")
     with tempfile.TemporaryDirectory() as tmpdir:
-        ffmpeg_path = shutil.which("ffmpeg") or "ffmpeg"
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-            # → On passe player_client dans extractor_args
-            "extractor_args": {
-                "youtube":  [
-                             "player_client=ANDROID",
-        # Optionnel : "base_url=yewtu.be"
-             ]
-            },
-            "http_headers": {
-                "User-Agent": (
-                    "Mozilla/5.0 (Linux; Android 8.0; Mobile) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/104.0.0.0 Mobile Safari/537.36"
-                )
-            },
-            "ffmpeg_location": ffmpeg_path,
-            "nocheckcertificate": True,
-        }
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
-        except Exception as e:
-            logger.error(f"Error downloading {video_url}: {e}")
-            raise
-        mp3s = [f for f in os.listdir(tmpdir) if f.endswith(".mp3")]
-        if not mp3s:
-            raise FileNotFoundError("No MP3 produced by yt-dlp")
-        path = os.path.join(tmpdir, mp3s[0])
-        with open(path, "rb") as f:
-            return BytesIO(f.read())
+        # 1) Sélection du meilleur flux audio
+        yt = YouTube(video_url)
+        audio_stream = yt.streams.filter(only_audio=True).order_by("abr").desc().first()
+        if not audio_stream:
+            raise FileNotFoundError(f"No audio stream found for {video_url}")
 
+        # 2) Téléchargement dans tmpdir
+        tmp_audio_path = audio_stream.download(output_path=tmpdir, filename="audio")
+
+        # 3) Conversion en MP3 via ffmpeg
+        mp3_path = os.path.join(tmpdir, "audio.mp3")
+        ffmpeg_exe = shutil.which("ffmpeg") or "ffmpeg"
+        subprocess.run([
+            ffmpeg_exe,
+            "-i", tmp_audio_path,
+            "-vn",           # aucun flux vidéo
+            "-ab", "192k",   # bitrate audio
+            mp3_path
+        ], check=True)
+
+        # 4) Chargement du MP3 en mémoire
+        bio = BytesIO()
+        with open(mp3_path, "rb") as f:
+            bio.write(f.read())
+        bio.name = "audio.mp3"
+        bio.seek(0)
+        return bio
 
 # ==== SPOTIFY FUNCTIONS ====
 try:
