@@ -2,8 +2,8 @@ name: Run Telegram Music Bot
 
 on:
   schedule:
-    # Toutes les 2 heures (INTERVAL_SECONDS = 2h dans bot.py)
-    - cron: '0 */2 * * *'
+    # toutes les 30 minutes
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -16,18 +16,16 @@ permissions:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    # Timeout à 30 minutes pour éviter un job qui traîne
     timeout-minutes: 30
 
     env:
-      # Ton fichier d’historique
       HIST_FILE: history.json
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
@@ -43,7 +41,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run one iteration of bot
+      - name: Run one iteration of the bot
         env:
           TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_GROUP_ID:     ${{ secrets.TELEGRAM_GROUP_ID }}
@@ -52,7 +50,7 @@ jobs:
           YTDLP_COOKIES_B64:     ${{ secrets.YTDLP_COOKIES_B64 }}
         run: |
           echo "🚀 Running a single check pass"
-          python -c 'import asyncio, bot; asyncio.run(bot.run_checks())'
+          python bot.py
 
       - name: Commit & push history.json if changed
         run: |

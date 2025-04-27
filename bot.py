@@ -310,9 +310,14 @@ async def main():
         logger.info(f"Sleeping {INTERVAL_SECONDS//3600}h")
         await asyncio.sleep(INTERVAL_SECONDS)
 
+# à remplacer dans bot.py, à la fin du fichier :
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        # on ne boucle plus : on appelle juste une passe de run_checks()
+        import asyncio
+        asyncio.run(run_checks())
     except Exception as e:
         logger.exception(f"Fatal: {e}")
         sys.exit(1)
+
