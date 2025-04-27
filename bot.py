@@ -74,6 +74,7 @@ TIMEZONE = pytz.timezone("Pacific/Kiritimati")
 HISTORY_FILE = "processed.json"
 MAX_RETRIES = 3
 RETRY_DELAY = 10  # secondes
+MAX_HISTORY_SIZE = 500  # Nombre maximum d'entrées à conserver dans l'historique
 
 # ==== HISTORY HANDLING ====
 def load_history():
@@ -89,8 +90,18 @@ def load_history():
 
 processed = load_history()
 
+def trim_history(hist_dict):
+    """Limite la taille de l'historique pour éviter une croissance infinie."""
+    for key in hist_dict:
+        if len(hist_dict[key]) > MAX_HISTORY_SIZE:
+            hist_dict[key] = hist_dict[key][-MAX_HISTORY_SIZE:]
+    return hist_dict
+
 def save_history():
     try:
+        # Trim history before saving
+        global processed
+        processed = trim_history(processed)
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
             json.dump(processed, f, indent=2, ensure_ascii=False)
         logger.info("History saved")
@@ -118,7 +129,7 @@ def list_new_youtube_videos(channel_url):
 
     if feed.bozo:
         err = feed.bozo_exception
-        logger.error(f"RSS parse error for {channel_url}: {type(err).__name__} – {err}")
+        logger.error(f"RSS parse error for {channel_url}: {type(err).__name__} -- {err}")
         return []
 
     new_entries = []
@@ -142,6 +153,8 @@ def fetch_youtube_mp3(video_url):
     logger.info(f"Downloading YouTube MP3: {video_url}")
     with tempfile.TemporaryDirectory() as tmpdir:
         ffmpeg_path = shutil.which("ffmpeg") or "ffmpeg"
+        
+        # Configuration améliorée pour yt-dlp
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": os.path.join(tmpdir, "%(title)s.%(ext)s"),
@@ -151,25 +164,101 @@ def fetch_youtube_mp3(video_url):
                 "preferredquality": "192"
             }],
             "ffmpeg_location": ffmpeg_path,
+            "quiet": False,
+            "verbose": True,  # Afficher plus de détails pour le débogage
+            "geo_bypass": True,  # Contourner les restrictions géographiques
+            "geo_bypass_country": "US", 
+            "socket_timeout": 30,  # Augmenter le délai d'attente
+            "extractor_retries": 5,  # Plus de tentatives
+            "fragment_retries": 5,
+            "retries": 5
         }
+        
+        # Vérifier et utiliser les cookies si disponibles
         if os.path.isfile(COOKIES_FILE):
-            ydl_opts["cookiefile"] = COOKIES_FILE
+            logger.info(f"Using cookies file: {COOKIES_FILE}")
+            # Vérifier le contenu du fichier de cookies
+            with open(COOKIES_FILE, 'r') as f:
+                cookie_content = f.read().strip()
+                if cookie_content and not cookie_content.startswith("Error:"):
+                    ydl_opts["cookiefile"] = COOKIES_FILE
+                else:
+                    logger.error(f"Cookie file is empty or invalid")
         else:
             logger.warning(f"Cookie file '{COOKIES_FILE}' not found; YouTube may ask for sign-in.")
 
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
-        except Exception as e:
-            logger.error(f"Error downloading {video_url}: {e}")
-            raise
+        # Tentatives avec différentes méthodes si nécessaire
+        methods = [
+            lambda: download_with_opts(video_url, ydl_opts, tmpdir),
+            lambda: download_with_ytdl_direct(video_url, tmpdir)
+        ]
+        
+        for method in methods:
+            try:
+                result = method()
+                if result:
+                    return result
+            except Exception as e:
+                logger.error(f"Method failed: {str(e)}")
+                continue
+                
+        raise RuntimeError(f"All download methods failed for {video_url}")
 
+def download_with_opts(video_url, ydl_opts, tmpdir):
+    """Télécharge avec les options yt-dlp spécifiées"""
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+            
         mp3s = [f for f in os.listdir(tmpdir) if f.endswith(".mp3")]
         if not mp3s:
-            raise FileNotFoundError("No MP3 produced by yt-dlp")
+            logger.error("No MP3 produced by yt-dlp")
+            return None
+            
         path = os.path.join(tmpdir, mp3s[0])
         with open(path, "rb") as f:
             return BytesIO(f.read())
+    except Exception as e:
+        logger.error(f"Error in primary download method: {e}")
+        return None
+
+def download_with_ytdl_direct(video_url, tmpdir):
+    """Méthode alternative utilisant une commande système directe"""
+    output_template = os.path.join(tmpdir, "audio.%(ext)s")
+    cmd = [
+        "yt-dlp", 
+        "--extract-audio", 
+        "--audio-format", "mp3",
+        "--audio-quality", "192K",
+        "--output", output_template,
+        "--geo-bypass",
+        "--no-check-certificate",
+        "--force-ipv4",
+        video_url
+    ]
+    
+    if os.path.isfile(COOKIES_FILE):
+        cmd.extend(["--cookies", COOKIES_FILE])
+    
+    try:
+        logger.info(f"Executing direct command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        logger.info(f"Command output: {result.stdout}")
+        
+        mp3s = [f for f in os.listdir(tmpdir) if f.endswith(".mp3")]
+        if not mp3s:
+            logger.error("No MP3 produced by direct command")
+            return None
+            
+        path = os.path.join(tmpdir, mp3s[0])
+        with open(path, "rb") as f:
+            return BytesIO(f.read())
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command failed: {e.stderr}")
+        return None
+    except Exception as e:
+        logger.error(f"Error in alternative download method: {e}")
+        return None
 
 # ==== SPOTIFY FUNCTIONS ====
 try:
@@ -223,16 +312,36 @@ def fetch_spotify_mp3(track_url):
         raise RuntimeError("spotdl not initialized")
     logger.info(f"Downloading Spotify MP3: {track_url}")
     with tempfile.TemporaryDirectory() as tmpdir:
-        songs = spdl.search([track_url])
-        if not songs:
-            raise FileNotFoundError(f"No song found for {track_url}")
-        out = os.path.join(tmpdir, "track.mp3")
-        results = spdl.download_songs(songs, output=out)
-        path = results[0][1] if results and results[0] else None
-        if not path or not os.path.exists(path):
-            raise FileNotFoundError("spotdl download failed")
-        with open(path, "rb") as f:
-            return BytesIO(f.read())
+        try:
+            # Première tentative avec spotdl
+            songs = spdl.search([track_url])
+            if not songs:
+                raise FileNotFoundError(f"No song found for {track_url}")
+            out = os.path.join(tmpdir, "track.mp3")
+            results = spdl.download_songs(songs, output=out)
+            path = results[0][1] if results and results[0] else None
+            if not path or not os.path.exists(path):
+                raise FileNotFoundError("spotdl download failed")
+            with open(path, "rb") as f:
+                return BytesIO(f.read())
+        except Exception as e:
+            logger.error(f"Error with spotdl: {e}")
+            
+            # Méthode alternative avec commandes système
+            try:
+                cmd = ["spotdl", "--output", tmpdir, track_url]
+                subprocess.run(cmd, check=True, capture_output=True)
+                
+                mp3s = [f for f in os.listdir(tmpdir) if f.endswith(".mp3")]
+                if not mp3s:
+                    raise FileNotFoundError("No MP3 produced by spotdl command")
+                    
+                path = os.path.join(tmpdir, mp3s[0])
+                with open(path, "rb") as f:
+                    return BytesIO(f.read())
+            except Exception as e2:
+                logger.error(f"Alternative spotdl method failed: {e2}")
+                raise RuntimeError(f"All Spotify download methods failed for {track_url}")
 
 # ==== TELEGRAM SENDER & MAIN ====
 bot = Bot(TOKEN)
@@ -251,8 +360,15 @@ async def send_audio(data: BytesIO, title: str):
             )
             return True
         except RetryAfter as e:
+            logger.info(f"Rate limited. Retrying after {e.retry_after} seconds")
             await asyncio.sleep(e.retry_after + 1)
-        except (NetworkError, TimedOut):
+        except (NetworkError, TimedOut) as e:
+            logger.warning(f"Network error: {e}. Retrying after {RETRY_DELAY} seconds")
+            await asyncio.sleep(RETRY_DELAY)
+        except Exception as e:
+            logger.error(f"Error sending audio: {e}")
+            if i == MAX_RETRIES - 1:
+                return False
             await asyncio.sleep(RETRY_DELAY)
         finally:
             data.seek(0)
@@ -263,19 +379,30 @@ async def main():
     sent = 0
     run_hist = {"ytm": [], "spotify": []}
 
+    # Vérifier que les fichiers nécessaires existent
+    if os.path.isfile(COOKIES_FILE):
+        logger.info(f"Cookies file exists: {COOKIES_FILE}")
+        cookie_size = os.path.getsize(COOKIES_FILE)
+        logger.info(f"Cookies file size: {cookie_size} bytes")
+    else:
+        logger.warning(f"Cookies file missing: {COOKIES_FILE}")
+
     logger.info("--- YouTube checks ---")
     for ch in YOUTUBE_CHANNELS:
         for vid, url, title in list_new_youtube_videos(ch):
             if vid in processed["ytm"] or vid in run_hist["ytm"]:
                 continue
             try:
+                logger.info(f"Processing YouTube video: {title} ({vid})")
                 buf = fetch_youtube_mp3(url)
-                if await send_audio(buf, title):
+                if buf and await send_audio(buf, title):
                     processed["ytm"].append(vid)
                     run_hist["ytm"].append(vid)
                     sent += 1
                     save_history()
-                buf.close()
+                    logger.info(f"Successfully processed and sent: {title}")
+                if buf:
+                    buf.close()
             except Exception as e:
                 logger.error(f"YouTube error {title}: {e}")
             await asyncio.sleep(3)
@@ -287,13 +414,16 @@ async def main():
                 if tid in processed["spotify"] or tid in run_hist["spotify"]:
                     continue
                 try:
+                    logger.info(f"Processing Spotify track: {title} ({tid})")
                     buf = fetch_spotify_mp3(url)
-                    if await send_audio(buf, title):
+                    if buf and await send_audio(buf, title):
                         processed["spotify"].append(tid)
                         run_hist["spotify"].append(tid)
                         sent += 1
                         save_history()
-                    buf.close()
+                        logger.info(f"Successfully processed and sent: {title}")
+                    if buf:
+                        buf.close()
                 except Exception as e:
                     logger.error(f"Spotify error {title}: {e}")
                 await asyncio.sleep(3)
@@ -305,6 +435,7 @@ async def main():
 if __name__ == "__main__":
     try:
         subprocess.run(["ffmpeg", "-version"], check=True, capture_output=True)
+        logger.info("ffmpeg is available")
     except Exception as e:
         logger.error(f"FATAL: ffmpeg missing or broken ({e})")
         sys.exit(1)
