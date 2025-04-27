@@ -4,3 +4,7 @@ spotdl==4.2.11
 yt-dlp==2025.3.31
 feedparser==6.0.11
 pytz==2024.1
+requests
+python-telegram-bot==20.3
+feedparser==6.0.11
+pytz==2024.1
