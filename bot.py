@@ -38,12 +38,12 @@ SPOTIFY_ID        = os.environ.get("SPOTIFY_CLIENT_ID")
 SPOTIFY_SECRET    = os.environ.get("SPOTIFY_CLIENT_SECRET")
 YTDLP_COOKIES_B64 = os.environ.get("YTDLP_COOKIES_B64", "")
 COOKIES_FILE      = "cookies.txt"
-HISTORY_FILE      = "processed.json"
+HISTORY_FILE = os.getenv('HIST_FILE', 'history.json')
 TIMEZONE          = pytz.timezone("Pacific/Kiritimati")
 INTERVAL_SECONDS  = 2 * 3600   # 2 heures
 MAX_RETRIES       = 3
 RETRY_DELAY       = 10  # secondes
-
+print(f"Le fichier d'historique est : {HISTORY_FILE}")
 # Validate Telegram
 if not TOKEN or not GROUP_ID_STR:
     logger.error("FATAL: TELEGRAM_BOT_TOKEN ou TELEGRAM_GROUP_ID manquants")
@@ -90,18 +90,18 @@ SPOTIFY_ARTISTS = [
     "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"
 ]
 
-# ==== History ====
 def load_history():
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except:
-        return {"ytm": [], "spotify": []}
-
+        return {"ytm": [], "spotify": []}  # Structure avec 2 listes pour YouTube et Spotify
+    
 def save_history(hist):
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(hist, f, indent=2, ensure_ascii=False)
 
+history = load_history()
 # ==== Utils ====
 def now_kiritimati():
     return datetime.datetime.now(datetime.timezone.utc).astimezone(TIMEZONE)
@@ -208,35 +208,76 @@ async def send_audio(buf, title):
             buf.seek(0)
     return False
 
+async def process_youtube_video(video_id, url, title, hist):
+    if video_id not in hist["ytm"]:
+        try:
+            logger.info(f"Nouvelle vidéo YouTube trouvée: {title}")
+            buf = fetch_youtube_mp3(url)
+            if await send_audio(buf, title):
+                hist["ytm"].append(video_id)  # Ajoute l'ID vidéo à l'historique
+                save_history(hist)  # Sauvegarde l'historique
+            buf.close()
+        except Exception as e:
+            logger.error(f"Erreur lors du traitement de la vidéo YouTube: {e}")
+        await asyncio.sleep(3)
+    else:
+        logger.info(f"Vidéo déjà envoyée: {title}")
+
+async def process_spotify_track(track_id, url, title, hist):
+    if track_id not in hist["spotify"]:
+        try:
+            logger.info(f"Nouvelle chanson Spotify trouvée: {title}")
+            buf = fetch_spotify_mp3(url)
+            if await send_audio(buf, title):
+                hist["spotify"].append(track_id)  # Ajoute l'ID chanson à l'historique
+                save_history(hist)  # Sauvegarde l'historique
+            buf.close()
+        except Exception as e:
+            logger.error(f"Erreur lors du traitement de la chanson Spotify: {e}")
+        await asyncio.sleep(3)
+    else:
+        logger.info(f"Chanson déjà envoyée: {title}")
+
 # ==== Main loop ====
 async def run_checks():
-    # decode cookies once
+    # Decode cookies une seule fois
     if YTDLP_COOKIES_B64:
-        with open(COOKIES_FILE,"wb") as f:
+        with open(COOKIES_FILE, "wb") as f:
             f.write(base64.b64decode(YTDLP_COOKIES_B64))
+
+    # Charge l'historique
     hist = load_history()
 
-    # YouTube
-    for vid,url,title in list_new_youtube_videos(hist):
+    # YouTube: Liste les nouvelles vidéos et les traite
+    for video_id, url, title in list_new_youtube_videos(hist):
         try:
-            buf = fetch_youtube_mp3(url)
-            if await send_audio(buf,title):
-                hist["ytm"].append(vid); save_history(hist)
-            buf.close()
+            if video_id not in hist["ytm"]:  # Vérifie si la vidéo a déjà été envoyée
+                buf = fetch_youtube_mp3(url)
+                if await send_audio(buf, title):
+                    hist["ytm"].append(video_id)  # Ajoute l'ID de la vidéo à l'historique
+                    save_history(hist)  # Sauvegarde l'historique mis à jour
+                buf.close()
+            else:
+                logger.info(f"Vidéo déjà envoyée: {title}")
         except Exception as e:
             logger.error(f"YouTube error: {e}")
         await asyncio.sleep(3)
 
-    # Spotify
-    for tid,url,title in list_new_spotify_tracks(hist):
+    # Spotify: Liste les nouveaux morceaux et les traite
+    for track_id, url, title in list_new_spotify_tracks(hist):
         try:
-            buf = fetch_spotify_mp3(url)
-            if await send_audio(buf,title):
-                hist["spotify"].append(tid); save_history(hist)
-            buf.close()
+            if track_id not in hist["spotify"]:  # Vérifie si le morceau a déjà été envoyé
+                buf = fetch_spotify_mp3(url)
+                if await send_audio(buf, title):
+                    hist["spotify"].append(track_id)  # Ajoute l'ID du morceau à l'historique
+                    save_history(hist)  # Sauvegarde l'historique mis à jour
+                buf.close()
+            else:
+                logger.info(f"Morceau déjà envoyé: {title}")
         except Exception as e:
             logger.error(f"Spotify error: {e}")
         await asyncio.sleep(3)
+
 
 async def main():
     while True:

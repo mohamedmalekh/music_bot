@@ -2,7 +2,7 @@ name: Run Telegram Music Bot
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      HIST_FILE: processed.json
+      HIST_FILE: history.json
 
     steps:
       - name: Checkout repository
@@ -27,7 +27,6 @@ jobs:
         run: |
           echo "📂 Working dir: $(pwd)"
           ls -la
-          ls -R .
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -63,7 +62,7 @@ jobs:
       - name: Check for changes in history file
         id: git-check
         run: |
-          if git diff --quiet processed.json; then
+          if git diff --quiet history.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -72,8 +71,8 @@ jobs:
       - name: Commit and push history file if changed
         if: steps.git-check.outputs.changed == 'true'
         run: |
-          git add processed.json
-          git commit -m "chore: update processed.json [skip ci]"
+          git add history.json
+          git commit -m "chore: update history.json [skip ci]"
           for i in 1 2 3; do
             git push && break || sleep 15
           done
