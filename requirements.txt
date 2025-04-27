@@ -2,3 +2,4 @@ python-telegram-bot==20.3
 spotdl==4.2.11
 feedparser==6.0.11
 pytz==2024.1
+yt-dlp>=2023.12.30

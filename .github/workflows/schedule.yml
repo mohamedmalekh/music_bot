@@ -1,4 +1,3 @@
-# .github/workflows/bot_runner.yml
 name: Run Telegram Music Bot
 
 on:
@@ -26,65 +25,59 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2) Debug: lister tous les fichiers
-      - name: Debug list files
-        run: |
-          echo "📂 Working dir: $(pwd)"
-          ls -la
-          echo "📁 Recursive listing:"
-          ls -R .
-
-      # 3) Setup Python et cache pip
+      # 2) Setup Python et cache pip
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      # 4) Installer ffmpeg
+      # 3) Installer ffmpeg
       - name: Install ffmpeg
         run: |
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends ffmpeg
 
-      # 5) Installer les dépendances Python
+      # 4) Installer les dépendances Python
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 6) Décode le secret base64 en cookies.txt
-      - name: Write cookies.txt from secret (base64 decode)
+      # 5) Préparer les cookies
+      - name: Prepare cookies file
         shell: bash
         run: |
+          # Créer un fichier cookies.txt temporaire
           echo "${{ secrets.YTDLP_COOKIES_B64 }}" | base64 -d > cookies.txt
+          
+          # Vérifier le fichier cookies
+          if [ -s cookies.txt ]; then
+            echo "✅ cookies.txt created successfully"
+            head -n 1 cookies.txt | grep -q "# Netscape HTTP Cookie File" && echo "✅ Valid cookie format" || echo "❌ Invalid cookie format"
+          else
+            echo "❌ cookies.txt is empty"
+            exit 1
+          fi
 
-      # 7) Debug: vérifier le début de cookies.txt
-      - name: Debug cookies.txt head
-        shell: bash
-        run: |
-          echo "---- Début de cookies.txt ----"
-          head -n5 cookies.txt
-          echo "---- Fin debug ----"
-
-      # 8) Lancer le script bot.py
+      # 6) Lancer le script bot.py
       - name: Run the bot script
         env:
-          TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_GROUP_ID:     ${{ secrets.TELEGRAM_GROUP_ID }}
-          SPOTIFY_CLIENT_ID:     ${{ secrets.SPOTIFY_CLIENT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_GROUP_ID: ${{ secrets.TELEGRAM_GROUP_ID }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
         run: |
           echo "🚀 Starting bot.py"
           python bot.py
 
-      # 9) Configurer Git pour le commit
+      # 7) Configurer Git pour le commit
       - name: Configure Git
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      # 10) Vérifier si processed.json a changé
+      # 8) Vérifier si processed.json a changé
       - name: Check for changes in history file
         id: git-check
         run: |
@@ -94,7 +87,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # 11) Commit & push processed.json si modifié
+      # 9) Commit & push processed.json si modifié
       - name: Commit and push history file if changed
         if: steps.git-check.outputs.changed == 'true'
         run: |
