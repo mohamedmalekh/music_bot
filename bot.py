@@ -142,11 +142,10 @@ def fetch_youtube_mp3(video_url):
             }],
             # → On passe player_client dans extractor_args
             "extractor_args": {
-                "youtube": {
-                    "player_client": "android",
-                    # optionnel : si ça bloque encore, on ajoute un front-end Invidious
-                    # "base_url": "https://yewtu.be"
-                }
+                "youtube":  [
+                             "player_client=ANDROID",
+        # Optionnel : "base_url=yewtu.be"
+             ]
             },
             "http_headers": {
                 "User-Agent": (
