@@ -28,7 +28,10 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from spotdl import Spotdl
 
 from yt_dlp import YoutubeDL
-
+from yt_dlp.utils import DownloadError
+from yt_dlp.postprocessor.common import PostProcessor
+from yt_dlp.utils import sanitize_filename
+from yt_dlp.utils import YoutubeDL
 # ==== LOGGING CONFIGURATION ====
 logging.basicConfig(
     level=logging.INFO,
@@ -134,64 +137,81 @@ def list_new_youtube_videos(channel_url):
             logger.info(f"New YouTube video: {entry.title}")
     return new_entries
 
-from yt_dlp import YoutubeDL
-import tempfile
-import shutil
-import os
+import re
+import requests
 import subprocess
+import shutil
+import tempfile
 from io import BytesIO
+import os
 import logging
 
 logger = logging.getLogger(__name__)
 
 def fetch_youtube_mp3(video_url: str) -> BytesIO:
     """
-    Télécharge l’audio d’une vidéo YouTube via yt-dlp (sans cookies),
-    en forçant le client Android, puis retourne un BytesIO MP3.
+    1) Extrait l’ID vidéo YouTube
+    2) Récupère les URLs de streams via l’API Invidious (yewtu.be)
+    3) Choisit le meilleur flux audio
+    4) Télécharge+convertit en MP3 via ffmpeg
+    5) Retourne un BytesIO contenant le MP3
     """
-    logger.info(f"Downloading YouTube MP3: {video_url}")
+    logger.info(f"Downloading YouTube MP3 via Invidious: {video_url}")
+
+    # 1) Extraire l’ID
+    m = re.search(r"(?:v=|youtu\.be/)([A-Za-z0-9_-]{11})", video_url)
+    if not m:
+        raise ValueError("Impossible d’extraire l’ID YouTube depuis : " + video_url)
+    vid = m.group(1)
+
+    # 2) Appel à Invidious pour lister les streams
+    api = f"https://yewtu.be/invidious/api/v1/streams/{vid}"
+    r = requests.get(api, timeout=10)
+    r.raise_for_status()
+    data = r.json()
+
+    # 3) Filtrer les streams audio et choisir le meilleur (ex: opus/itag 251 ou mp4/itag 140)
+    formats = data.get("adaptiveFormats", [])
+    # priorité opus (audio/webm), sinon mp4
+    audio_stream = next(
+        (f for f in formats if "audio/webm" in f.get("mimeType","") and f.get("itag")==251),
+        None
+    ) or next(
+        (f for f in formats if "audio/mp4" in f.get("mimeType","") and f.get("itag")==140),
+        None
+    )
+    if not audio_stream or "url" not in audio_stream:
+        raise FileNotFoundError("Pas de flux audio disponible pour " + vid)
+    audio_url = audio_stream["url"]
+
+    # 4) Téléchargement + conversion
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Configuration de yt-dlp
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": os.path.join(tmpdir, "%(id)s.%(ext)s"),
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192",
-            }],
-            "extractor_args": {
-                # Doit être une liste de chaînes "clé=valeur"
-                "youtube": [
-                    "player_client=ANDROID"
-                ]
-            },
-            "http_headers": {
-                # User-Agent mobile pour éviter les captchas
-                "User-Agent": (
-                    "Mozilla/5.0 (Linux; Android 9; Mobile) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/104.0.0.0 Mobile Safari/537.36"
-                )
-            },
-            # Emplacement de ffmpeg
-            "ffmpeg_location": shutil.which("ffmpeg") or "ffmpeg",
-            "nocheckcertificate": True,
-        }
+        # télécharger directement le flux dans un fichier temporaire .webm ou .m4a
+        ext = "webm" if "webm" in audio_stream["mimeType"] else "m4a"
+        tmp_input = os.path.join(tmpdir, f"input.{ext}")
+        with requests.get(audio_url, stream=True) as rs:
+            rs.raise_for_status()
+            with open(tmp_input, "wb") as fw:
+                for chunk in rs.iter_content(1024*64):
+                    fw.write(chunk)
 
-        # Téléchargement & conversion
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+        # chemin de sortie MP3
+        tmp_mp3 = os.path.join(tmpdir, "output.mp3")
+        ffmpeg_exe = shutil.which("ffmpeg") or "ffmpeg"
+        subprocess.run([
+            ffmpeg_exe,
+            "-i", tmp_input,
+            "-vn",                # pas de vidéo
+            "-ab", "192k",        # bitrate
+            "-y",                 # overwrite
+            tmp_mp3
+        ], check=True)
 
-        # Récupération du fichier MP3 généré
-        mp3_file = next(f for f in os.listdir(tmpdir) if f.lower().endswith(".mp3"))
-        mp3_path = os.path.join(tmpdir, mp3_file)
-
-        # Chargement en mémoire
+        # 5) charger en mémoire
         bio = BytesIO()
-        with open(mp3_path, "rb") as f:
-            bio.write(f.read())
-        bio.name = mp3_file
+        with open(tmp_mp3, "rb") as fr:
+            bio.write(fr.read())
+        bio.name = f"{vid}.mp3"
         bio.seek(0)
         return bio
 
