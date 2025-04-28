@@ -87,6 +87,17 @@ YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCyGtqW7TfOToaMY0A8GnXyA",
     "https://www.youtube.com/channel/UC7ZuMv7r60Cwn7mRNlPC0LA",
     "https://www.youtube.com/channel/UCtZbx-4oPQPt9UzFZ0svxbA",
+    "https://www.youtube.com/channel/UC9MM5kyom9q_bgwgIG72aig",
+    "https://www.youtube.com/channel/UC0X1a2gk3bq4v7j5r6x8Y9w",
+    "https://www.youtube.com/channel/UC-GI5LST5T3Gw93yZxjdFaw",
+    "https://www.youtube.com/channel/UCVrtt9YyQ7RaAe_cnn-bWWQ",
+    "https://www.youtube.com/channel/UCGDawZyaXbMbcr15My67wmw",
+    "https://www.youtube.com/channel/UCgvLPnUn2PfKsdbqGVZAMPw",
+    "https://www.youtube.com/channel/UCyB6xP6_c6ZCqC2b4wYAsLw",
+    "https://www.youtube.com/channel/UCCB1Byx5yTbLpQaV-rlfmtA",
+    "https://www.youtube.com/channel/UCwKKwo3yWoVfPjlKN62KqQA",
+    "https://www.youtube.com/channel/UCZU5ofyBsEmVuKYrijLFxrg",
+    
 ]
 
 SPOTIFY_ARTISTS = [
