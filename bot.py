@@ -98,6 +98,19 @@ YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCwKKwo3yWoVfPjlKN62KqQA",
     "https://www.youtube.com/channel/UCZU5ofyBsEmVuKYrijLFxrg",
     "https://www.youtube.com/channel/UCtAhIlz3P9mzJ0jWxaZ8RYA",
+    "https://www.youtube.com/channel/UCL8aaObaUA14kpqkztGfBYA",
+    "https://www.youtube.com/channel/UCiqwANpD_MyogjjPJyrbB-A",
+    "https://www.youtube.com/channel/UCWcQRCPPW4qxa3OCUBBsuFw",
+    "https://www.youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ",
+    "https://www.youtube.com/channel/UCmMHQBby2vt2Qd9StcmBXXQ",
+    "https://www.youtube.com/channel/UC1Vribmny1eI62yYWux3rdQ",
+    "https://www.youtube.com/channel/UC0XcAvzmW91qsWor3Qg6r3g",
+    "https://www.youtube.com/channel/UCWWn6dtJhc5JcchjSzuEL8g",
+    "https://www.youtube.com/channel/UC0XcAvzmW91qsWor3Qg6r3g",
+    "https://www.youtube.com/channel/UCucdEPn-auvaUmBOJYuX7Og",
+    "https://www.youtube.com/channel/UC7JpmOJscJcm-VsF6XnvYWg",
+    "https://www.youtube.com/channel/UC8bEqtGJEUoYdWnti8k3R2Q",
+    "https://www.youtube.com/channel/UC-bIUmH8gFA_lFkV2rJ6GMQ",
     
 ]
 
