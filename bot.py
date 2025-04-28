@@ -46,7 +46,7 @@ HISTORY_FILE      = os.getenv("HIST_FILE", "/data/history.json")
 TIMEZONE          = pytz.timezone("Pacific/Kiritimati")
 INTERVAL_SECONDS  = 30 * 60    # 30 minutes
 MAX_RETRIES       = 3
-RETRY_DELAY       = 10  # secondes
+RETRY_DELAY       = 10  # seconds
 
 print(f"Using history file: {HISTORY_FILE}")
 
@@ -113,7 +113,7 @@ def save_history(hist):
 def now_kiritimati():
     return datetime.datetime.now(datetime.timezone.utc).astimezone(TIMEZONE)
 
-# ==== YouTube ====
+# ==== YouTube functions ====
 def list_new_youtube_videos(hist):
     new = []
     now_dt = now_kiritimati()
@@ -128,9 +128,9 @@ def list_new_youtube_videos(hist):
             if not vid or vid in hist["ytm"]: continue
             if not e.get("published_parsed"): continue
             pub = datetime.datetime(*e.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
-            if 0 <= (now_dt - pub).total_seconds() < 7*24*3600:
+            if 0 <= (now_dt - pub).total_seconds() < 7 * 24 * 3600:
                 new.append((vid, e.link, e.title))
-                logger.info(f"→ New video: {e.title}")
+                logger.info(f"→ New video found: {e.title}")
     return new
 
 def fetch_youtube_mp3(video_url):
@@ -288,6 +288,7 @@ async def run_checks():
                 buf.close()
         await asyncio.sleep(3)
 
+# ==== Continuously run every 30 minutes ====
 async def main():
     while True:
         logger.info("=== New check round ===")
