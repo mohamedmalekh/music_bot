@@ -39,27 +39,27 @@ SPOTIFY_ID        = os.environ.get("SPOTIFY_CLIENT_ID")
 SPOTIFY_SECRET    = os.environ.get("SPOTIFY_CLIENT_SECRET")
 YTDLP_COOKIES_B64 = os.environ.get("YTDLP_COOKIES_B64", "")
 COOKIES_FILE      = "cookies.txt"
-HISTORY_FILE      = os.getenv('HIST_FILE', 'history.json')
+HISTORY_FILE      = os.getenv("HIST_FILE", "history.json")
 TIMEZONE          = pytz.timezone("Pacific/Kiritimati")
-INTERVAL_SECONDS  = 2 * 3600   # 2 heures
+INTERVAL_SECONDS  = 30 * 60    # 30 minutes
 MAX_RETRIES       = 3
-RETRY_DELAY       = 10  # secondes
+RETRY_DELAY       = 10  # seconds
 
-print(f"Le fichier d'historique est : {HISTORY_FILE}")
+print(f"Using history file: {HISTORY_FILE}")
 
 def exit_fatal(msg):
     logger.error(f"FATAL: {msg}")
     sys.exit(1)
 
 if not TOKEN or not GROUP_ID_STR:
-    exit_fatal("TELEGRAM_BOT_TOKEN ou TELEGRAM_GROUP_ID manquants")
+    exit_fatal("TELEGRAM_BOT_TOKEN or TELEGRAM_GROUP_ID missing")
 try:
     GROUP_ID = int(GROUP_ID_STR)
 except ValueError:
-    exit_fatal("TELEGRAM_GROUP_ID non numérique")
+    exit_fatal("TELEGRAM_GROUP_ID is not numeric")
 
 if not SPOTIFY_ID or not SPOTIFY_SECRET:
-    logger.warning("Spotify credentials manquants — Spotify ignoré")
+    logger.warning("Spotify credentials missing – Spotify features disabled")
 
 YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
@@ -98,27 +98,27 @@ def load_history():
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except FileNotFoundError:
         return {"ytm": [], "spotify": []}
 
 def save_history(hist):
     with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(hist, f, indent=2, ensure_ascii=False)
 
-# ==== Utils ====
+# ==== Utilities ====
 def now_kiritimati():
     return datetime.datetime.now(datetime.timezone.utc).astimezone(TIMEZONE)
 
-# ==== YouTube ====
+# ==== YouTube functions ====
 def list_new_youtube_videos(hist):
     new = []
     now_dt = now_kiritimati()
     for url in YOUTUBE_CHANNELS:
-        logger.info(f"Check YT channel: {url}")
-        cid = url.split("/channel/")[-1].split("/")[0] if "/channel/" in url else url.rstrip("/").split("/")[-1]
+        logger.info(f"Checking YouTube channel: {url}")
+        cid = url.rstrip("/").split("/")[-1]
         feed = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}")
         if feed.bozo:
-            logger.error(f"RSS error: {feed.bozo_exception}")
+            logger.error(f"RSS parse error: {feed.bozo_exception}")
             continue
         for e in feed.entries:
             vid = getattr(e, "yt_videoid", None)
@@ -127,17 +127,13 @@ def list_new_youtube_videos(hist):
             if not e.get("published_parsed"):
                 continue
             pub = datetime.datetime(*e.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
-            if 0 <= (now_dt - pub).total_seconds() < 7*24*3600:
+            if 0 <= (now_dt - pub).total_seconds() < 7 * 24 * 3600:
                 new.append((vid, e.link, e.title))
-                logger.info(f"→ New video: {e.title}")
+                logger.info(f"→ New video found: {e.title}")
     return new
 
 def fetch_youtube_mp3(video_url):
-    """
-    Télécharge l'audio en MP3 et retourne un BytesIO,
-    ou None si la vidéo est programmée/premiere ou bloquée.
-    """
-    logger.info(f"Download YT MP3: {video_url}")
+    logger.info(f"Downloading YT audio: {video_url}")
     with tempfile.TemporaryDirectory() as td:
         opts = {
             "format": "bestaudio/best",
@@ -157,42 +153,33 @@ def fetch_youtube_mp3(video_url):
             opts["cookiefile"] = COOKIES_FILE
 
         with YoutubeDL(opts) as ydl:
-            # 1) extraire les méta sans télécharger
             try:
                 info = ydl.extract_info(video_url, download=False)
             except DownloadError as e:
                 msg = str(e)
                 if "Premieres in" in msg or "HTTP Error 401" in msg:
-                    logger.info(f"Skip vidéo programmée/401: {msg}")
+                    logger.info(f"Skipping unavailable video: {msg}")
                     return None
                 raise
-
-            # 2) skip si release_timestamp futur
-            release_ts = info.get("release_timestamp") or 0
-            if release_ts > time.time():
-                logger.info(f"Skip future premiere (timestamp {release_ts} > now)")
+            if (info.get("release_timestamp") or 0) > time.time():
+                logger.info("Skipping future premiere")
                 return None
-
-            # 3) télécharger
             try:
                 ydl.download([video_url])
             except DownloadError as e:
                 msg = str(e)
                 if "Premieres in" in msg or "HTTP Error 401" in msg:
-                    logger.info(f"Skip après échec de download: {msg}")
+                    logger.info(f"Skipping after download error: {msg}")
                     return None
                 raise
 
-        # Récupérer le MP3
         files = [f for f in os.listdir(td) if f.endswith(".mp3")]
         if not files:
-            logger.error("Aucun MP3 généré malgré un download réussi.")
+            logger.error("No MP3 generated")
             return None
+        return BytesIO(open(os.path.join(td, files[0]), "rb").read())
 
-        path = os.path.join(td, files[0])
-        return BytesIO(open(path, "rb").read())
-
-# ==== Spotify ====
+# ==== Spotify functions ====
 try:
     sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
         client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
@@ -206,7 +193,7 @@ def list_new_spotify_tracks(hist):
     new = []
     now_dt = now_kiritimati()
     for url in SPOTIFY_ARTISTS:
-        logger.info(f"Check SP artist: {url}")
+        logger.info(f"Checking Spotify artist: {url}")
         aid = url.rstrip("/").split("/")[-1]
         try:
             albums = sp.artist_albums(aid, album_type="album,single", country="US", limit=20)
@@ -214,29 +201,28 @@ def list_new_spotify_tracks(hist):
             logger.error(f"Spotify API error: {e}")
             continue
         for alb in albums.get("items", []):
-            rd, prec = alb.get("release_date"), alb.get("release_date_precision","day")
+            rd, prec = alb.get("release_date"), alb.get("release_date_precision", "day")
             try:
-                fmt = {"year":"%Y","month":"%Y-%m","day":"%Y-%m-%d"}[prec]
+                fmt = {"year": "%Y", "month": "%Y-%m", "day": "%Y-%m-%d"}[prec]
                 d = datetime.datetime.strptime(rd, fmt)
             except:
                 continue
             pub = TIMEZONE.localize(d)
-            if 0 <= (now_dt - pub).total_seconds() < 7*24*3600:
-                tracks = sp.album_tracks(alb["id"]).get("items",[])
-                for tr in tracks:
+            if 0 <= (now_dt - pub).total_seconds() < 7 * 24 * 3600:
+                for tr in sp.album_tracks(alb["id"]).get("items", []):
                     tid = tr.get("id")
-                    link = tr.get("external_urls",{}).get("spotify")
-                    name = tr.get("name")
-                    artists = ", ".join(a["name"] for a in tr.get("artists",[]))
+                    link = tr["external_urls"]["spotify"]
+                    name = tr["name"]
+                    artists = ", ".join(a["name"] for a in tr["artists"])
                     if tid and link and tid not in hist["spotify"]:
                         new.append((tid, link, f"{artists} - {name}"))
-                        logger.info(f"→ New SP: {artists} - {name}")
+                        logger.info(f"→ New track found: {artists} - {name}")
     return new
 
 def fetch_spotify_mp3(track_url):
     if not spdl:
         raise RuntimeError("spotdl not initialized")
-    logger.info(f"Download SP MP3: {track_url}")
+    logger.info(f"Downloading Spotify track: {track_url}")
     with tempfile.TemporaryDirectory() as td:
         songs = spdl.search([track_url])
         out = os.path.join(td, "t.mp3")
@@ -268,9 +254,8 @@ async def send_audio(buf, title):
             buf.seek(0)
     return False
 
-# ==== Main loop ====
+# ==== Main check function ====
 async def run_checks():
-    # Decode cookies
     if YTDLP_COOKIES_B64:
         with open(COOKIES_FILE, "wb") as f:
             f.write(base64.b64decode(YTDLP_COOKIES_B64))
@@ -278,46 +263,38 @@ async def run_checks():
     hist = load_history()
 
     # YouTube
-    for video_id, url, title in list_new_youtube_videos(hist):
-        if video_id in hist["ytm"]:
-            logger.info(f"Vidéo déjà envoyée: {title}")
-            continue
-        buf = fetch_youtube_mp3(url)
-        if buf:
-            if await send_audio(buf, title):
-                hist["ytm"].append(video_id)
+    for vid, url, title in list_new_youtube_videos(hist):
+        if vid not in hist["ytm"]:
+            buf = fetch_youtube_mp3(url)
+            if buf and await send_audio(buf, title):
+                hist["ytm"].append(vid)
                 save_history(hist)
-            buf.close()
+            if buf:
+                buf.close()
         await asyncio.sleep(3)
 
     # Spotify
-    for track_id, url, title in list_new_spotify_tracks(hist):
-        if track_id in hist["spotify"]:
-            logger.info(f"Morceau déjà envoyé: {title}")
-            continue
-        buf = fetch_spotify_mp3(url)
-        if buf:
-            if await send_audio(buf, title):
-                hist["spotify"].append(track_id)
+    for tid, url, title in list_new_spotify_tracks(hist):
+        if tid not in hist["spotify"]:
+            buf = fetch_spotify_mp3(url)
+            if buf and await send_audio(buf, title):
+                hist["spotify"].append(tid)
                 save_history(hist)
-            buf.close()
+            if buf:
+                buf.close()
         await asyncio.sleep(3)
 
+# ==== Continuously run every 30 minutes ====
 async def main():
     while True:
-        logger.info("=== Start checks ===")
+        logger.info("=== Starting a new check round ===")
         await run_checks()
-        logger.info(f"Sleeping {INTERVAL_SECONDS//3600}h")
+        logger.info(f"Sleeping for {INTERVAL_SECONDS//60} minutes")
         await asyncio.sleep(INTERVAL_SECONDS)
-
-# à remplacer dans bot.py, à la fin du fichier :
 
 if __name__ == "__main__":
     try:
-        # on ne boucle plus : on appelle juste une passe de run_checks()
-        import asyncio
-        asyncio.run(run_checks())
+        asyncio.run(main())
     except Exception as e:
-        logger.exception(f"Fatal: {e}")
+        logger.exception(f"Fatal error: {e}")
         sys.exit(1)
-
