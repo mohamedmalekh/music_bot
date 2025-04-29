@@ -115,10 +115,7 @@ YOUTUBE_CHANNELS = [
 ]
 
 SPOTIFY_ARTISTS = [
-    "https://open.spotify.com/artist/4VxyE4jGlkGfceluWCWZvH",
-    "https://open.spotify.com/artist/3MKpGPhBp9KeXjGooKHNDX",
-    "https://open.spotify.com/artist/5aj6jIshzpUh4WQvQ5EzKO",
-    "https://open.spotify.com/artist/4BFLElxtBEdsdwGA1kHTsx"
+    "",
 ]
 
 # ==== Historique ====
