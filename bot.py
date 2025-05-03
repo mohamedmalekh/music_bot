@@ -44,7 +44,7 @@ COOKIES_FILE      = "cookies.txt"
 HISTORY_FILE      = os.getenv("HIST_FILE", "/data/history.json")
 
 TIMEZONE          = pytz.timezone("Pacific/Kiritimati")
-INTERVAL_SECONDS  = 30 * 60    # 30 minutes
+INTERVAL_SECONDS  = 15 * 60    # 30 minutes
 MAX_RETRIES       = 3
 RETRY_DELAY       = 10  # seconds
 
