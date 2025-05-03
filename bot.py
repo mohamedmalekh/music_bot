@@ -113,6 +113,8 @@ YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UC-bIUmH8gFA_lFkV2rJ6GMQ",
 "https://youtube.com/channel/UCCYT3uqgB08dh5mS3h421kA",
 "https://youtube.com/channel/UCLbji6FWNYfRiD9Un4v9jiA",
+"https://youtube.com/channel/UCOCMlsYEf9Bj70R_tXtvJEg",
+"https://youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ"
     
 ]
 
