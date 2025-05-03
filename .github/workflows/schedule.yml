@@ -1,72 +1,75 @@
-# name: Run Telegram Music Bot
 
-# on:
-#   schedule:
-#     # toutes les 30 minutes
-#     - cron: '*/15 * * * *'
-#   workflow_dispatch:
+name: Run Telegram Music Bot
 
-# concurrency:
-#   group: ${{ github.workflow }}-${{ github.ref }}
-#   cancel-in-progress: true
+on:
+schedule:
+# toutes les 30 minutes
+- cron: '*/15 * * * *'
+workflow_dispatch:
 
-# permissions:
-#   contents: write
+concurrency:
+group: ${{ github.workflow }}-${{ github.ref }}
+cancel-in-progress: true
 
-# jobs:
-#   run-bot:
-#     runs-on: ubuntu-latest
-#     timeout-minutes: 15
+permissions:
+contents: write
 
-#     env:
-#       HIST_FILE: history.json
+jobs:
+run-bot:
+runs-on: ubuntu-latest
+timeout-minutes: 15
 
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
-#         with:
-#           fetch-depth: 0
+env:  
+  HIST_FILE: history.json  
 
-#       - name: Setup Python 3.10
-#         uses: actions/setup-python@v5
-#         with:
-#           python-version: '3.10'
-#           cache: 'pip'
+steps:  
+  - name: Checkout code  
+    uses: actions/checkout@v4  
+    with:  
+      fetch-depth: 0  
 
-#       - name: Install ffmpeg
-#         run: |
-#           sudo apt-get update -y
-#           sudo apt-get install -y --no-install-recommends ffmpeg
+  - name: Setup Python 3.10  
+    uses: actions/setup-python@v5  
+    with:  
+      python-version: '3.10'  
+      cache: 'pip'  
 
-#       - name: Install Python dependencies
-#         run: |
-#           python -m pip install --upgrade pip
-#           pip install -r requirements.txt
+  - name: Install ffmpeg  
+    run: |  
+      sudo apt-get update -y  
+      sudo apt-get install -y --no-install-recommends ffmpeg  
 
-#       - name: Run one iteration of the bot
-#         env:
-#           TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}
-#           TELEGRAM_GROUP_ID:     ${{ secrets.TELEGRAM_GROUP_ID }}
-#           SPOTIFY_CLIENT_ID:     ${{ secrets.SPOTIFY_CLIENT_ID }}
-#           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
-#           YTDLP_COOKIES_B64:     ${{ secrets.YTDLP_COOKIES_B64 }}
-#         run: |
-#           echo "🚀 Running a single check pass"
-#           python bot.py
+  - name: Install Python dependencies  
+    run: |  
+      python -m pip install --upgrade pip  
+      pip install -r requirements.txt  
 
-#       - name: Check for changes in history.json
-#         id: git-check
-#         run: |
-#           if git diff --quiet history.json; then
-#             echo "changed=false" >> $GITHUB_OUTPUT
-#           else
-#             echo "changed=true" >> $GITHUB_OUTPUT
+  - name: Run one iteration of the bot  
+    env:  
+      TELEGRAM_BOT_TOKEN:    ${{ secrets.TELEGRAM_BOT_TOKEN }}  
+      TELEGRAM_GROUP_ID:     ${{ secrets.TELEGRAM_GROUP_ID }}  
+      SPOTIFY_CLIENT_ID:     ${{ secrets.SPOTIFY_CLIENT_ID }}  
+      SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}  
+      YTDLP_COOKIES_B64:     ${{ secrets.YTDLP_COOKIES_B64 }}  
+    run: |  
+      echo "🚀 Running a single check pass"  
+      python bot.py  
 
-#       - name: Commit & push history.json if changed
-#         if: steps.git-check.outputs.changed == 'true'
-#         run: |
-#           git config --global user.name "github-actions[bot]"
-#           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-#           git add history.json
-#           git commit -m "chore: update history.json [skip ci]"
-#           git push
+  - name: Check for changes in history.json  
+    id: git-check  
+    run: |  
+      if git diff --quiet history.json; then  
+        echo "changed=false" >> $GITHUB_OUTPUT  
+      else  
+        echo "changed=true" >> $GITHUB_OUTPUT  
+      fi  
+
+  - name: Commit & push history.json if changed  
+    if: steps.git-check.outputs.changed == 'true'  
+    run: |  
+      git config --global user.name "github-actions[bot]"  
+      git config --global user.email "github-actions[bot]@users.noreply.github.com"  
+      git add history.json  
+      git commit -m "chore: update history.json [skip ci]"  
+      git push
+
