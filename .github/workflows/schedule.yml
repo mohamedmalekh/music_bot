@@ -3,7 +3,7 @@ name: Run Telegram Music Bot
 on:
   schedule:
     # toutes les 30 minutes
-    - cron: '*/30 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 concurrency:
