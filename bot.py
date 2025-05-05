@@ -109,6 +109,24 @@ YOUTUBE_CHANNELS = [
     "https://youtube.com/channel/UCeBYRgPhy8kcRmIGQWKuqdQ",
     "https://youtube.com/channel/UC5IkSn-EFsUu3XANYklXc8g",
     "https://youtube.com/channel/UCanUjmTDohFr8OMpfk5xWBQ",
+    "https://youtube.com/channel/UC3foXd7OMbut1i4zKDmLS5Q",
+    "https://youtube.com/channel/UCQwOAHCemYyMN48LD1QE4VQ",
+    "https://youtube.com/channel/UCGknrJk5kJypRpbWdqQOhXQ",
+    "https://youtube.com/channel/UCFmW9YSajN0XrhLlHEN0OOA",
+    "https://youtube.com/channel/UC1_liDR4fRFJgH4HoJeV8cw",
+    "https://youtube.com/channel/UC5IkSn-EFsUu3XANYklXc8g",
+    "https://youtube.com/channel/UCN6LpjCbqjY6OM9aqFEWXIQ",
+    "https://youtube.com/channel/UCvoVZJeYGWVOzEHfDBiRr5g",
+    "https://youtube.com/channel/UCL8aaObaUA14kpqkztGfBYA",
+    "https://youtube.com/channel/UCZY-YIF6R9oHuk5YIjDkunA",
+    "https://youtube.com/channel/UCoHMUugeU6PWB9ePTOV7WJw",
+    "https://youtube.com/channel/UCuLNQOC5m2_aKf9_rXWmMFA",
+    "https://youtube.com/channel/UCkD8FdHTwzIo2lJGoSeXSXQ",
+    "https://youtube.com/channel/UC2ISePqOr39OQ90kNN1WLjA",
+    "https://youtube.com/channel/UCSNL1Dz6CfYzmfXFpSG24Aw",
+    "https://youtube.com/channel/UCl0tfz41M64qoo64WS_Ce7g",
+    "https://youtube.com/channel/UCSx2kcfRgmDovMzbw3lfmAA",
+    
 ]
 
 # ==== Historique ====
@@ -134,24 +152,40 @@ def now_kiritimati():
 
 def list_new_youtube_videos(hist):
     new = []
+    seen = set()                    # <— pour mémoriser les IDs déjà ajoutés
     now_dt = now_kiritimati()
+
     for url in YOUTUBE_CHANNELS:
         cid = url.rstrip("/").split("/")[-1]
-        feed = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}")
+        feed = feedparser.parse(
+            f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}"
+        )
         if feed.bozo:
             # flux malformé → on ignore
             continue
+
         for e in feed.entries:
             vid = getattr(e, "yt_videoid", None)
-            if not vid or vid in hist["ytm"]:
+            if (
+                not vid
+                or vid in hist["ytm"]    # déjà envoyé précédemment
+                or vid in seen           # déjà ajouté dans ce run
+            ):
                 continue
+
             if not e.get("published_parsed"):
                 continue
-            pub = datetime.datetime(*e.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
+
+            pub = datetime.datetime(
+                *e.published_parsed[:6], tzinfo=pytz.utc
+            ).astimezone(TIMEZONE)
+
             # vidéo publiée dans la dernière semaine
             if 0 <= (now_dt - pub).total_seconds() < 7 * 24 * 3600:
                 new.append((vid, e.link, e.title))
+                seen.add(vid)            # on marque l'ID comme vu
                 logger.info(f"→ New video found: {e.title}")
+
     return new
 
 def fetch_youtube_mp3(video_url):
@@ -175,18 +209,25 @@ def fetch_youtube_mp3(video_url):
             opts["cookiefile"] = COOKIES_FILE
 
         with YoutubeDL(opts) as ydl:
+            # Première phase : extraire les métadonnées
             try:
                 info = ydl.extract_info(video_url, download=False)
             except DownloadError as e:
                 msg = str(e)
+                # On ignore désormais aussi l’erreur de « sign in to confirm you’re not a bot »
                 if any(phrase in msg for phrase in (
                     "Premieres in", "HTTP Error 401",
                     "Sign in to confirm you're not a bot"
                 )):
+                    logger.warning(f"Skipping video (needs login/bot check): {msg}")
                     return None
                 raise
+
+            # Si c'est un futur premier, on ignore
             if (info.get("release_timestamp") or 0) > time.time():
                 return None
+
+            # Deuxième phase : téléchargement
             try:
                 ydl.download([video_url])
             except DownloadError as e:
@@ -195,13 +236,18 @@ def fetch_youtube_mp3(video_url):
                     "Premieres in", "HTTP Error 401",
                     "Sign in to confirm you're not a bot"
                 )):
+                    logger.warning(f"Skipping video after download error: {msg}")
                     return None
                 raise
 
+        # On cherche le fichier .mp3 généré
         files = [f for f in os.listdir(td) if f.endswith(".mp3")]
         if not files:
+            logger.error("No MP3 generated")
             return None
+
         return BytesIO(open(os.path.join(td, files[0]), "rb").read())
+
 
 # ==== Envoi Telegram ====
 
