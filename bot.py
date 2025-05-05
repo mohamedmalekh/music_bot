@@ -189,6 +189,11 @@ def list_new_youtube_videos(hist):
     return new
 
 def fetch_youtube_mp3(video_url):
+    """
+    Télécharge l'audio d'une vidéo YouTube en MP3,
+    en ignorant proprement les erreurs de type
+    "Sign in to confirm you’re not a bot".
+    """
     logger.info(f"Downloading YT audio: {video_url}")
     with tempfile.TemporaryDirectory() as td:
         opts = {
@@ -209,44 +214,44 @@ def fetch_youtube_mp3(video_url):
             opts["cookiefile"] = COOKIES_FILE
 
         with YoutubeDL(opts) as ydl:
-            # Première phase : extraire les métadonnées
+            # Phase 1 : extraire les métadonnées sans télécharger
             try:
                 info = ydl.extract_info(video_url, download=False)
             except DownloadError as e:
-                msg = str(e)
-                # On ignore désormais aussi l’erreur de « sign in to confirm you’re not a bot »
-                if any(phrase in msg for phrase in (
-                    "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot"
-                )):
-                    logger.warning(f"Skipping video (needs login/bot check): {msg}")
+                msg = str(e).lower()
+                # Ignorer les erreurs de type “Sign in to confirm…”
+                if msg.startswith("sign in to confirm"):
+                    logger.warning(f"Skipping video (login required): {e}")
                     return None
+                # Ignorer les autres erreurs connues
+                if "premieres in" in msg or "http error 401" in msg:
+                    logger.warning(f"Skipping video (unavailable): {e}")
+                    return None
+                # Pour toute autre DownloadError, on la remonte
                 raise
 
-            # Si c'est un futur premier, on ignore
+            # Si la vidéo est une future première, on ignore
             if (info.get("release_timestamp") or 0) > time.time():
                 return None
 
-            # Deuxième phase : téléchargement
+            # Phase 2 : téléchargement du flux audio
             try:
                 ydl.download([video_url])
             except DownloadError as e:
-                msg = str(e)
-                if any(phrase in msg for phrase in (
-                    "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot"
-                )):
-                    logger.warning(f"Skipping video after download error: {msg}")
+                msg = str(e).lower()
+                if msg.startswith("sign in to confirm") or "premieres in" in msg or "http error 401" in msg:
+                    logger.warning(f"Skipping after download error: {e}")
                     return None
                 raise
 
-        # On cherche le fichier .mp3 généré
-        files = [f for f in os.listdir(td) if f.endswith(".mp3")]
-        if not files:
+        # Récupérer le fichier .mp3 généré
+        mp3_files = [f for f in os.listdir(td) if f.endswith(".mp3")]
+        if not mp3_files:
             logger.error("No MP3 generated")
             return None
 
-        return BytesIO(open(os.path.join(td, files[0]), "rb").read())
+        # Retourner un buffer prêt à être envoyé
+        return BytesIO(open(os.path.join(td, mp3_files[0]), "rb").read())
 
 
 # ==== Envoi Telegram ====
