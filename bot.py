@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 TOKEN             = os.environ.get("TELEGRAM_BOT_TOKEN")
 GROUP_ID_STR      = os.environ.get("TELEGRAM_GROUP_ID")
 YTDLP_COOKIES_B64 = os.environ.get("YTDLP_COOKIES_B64", "")
+USER_AGENT        = os.environ.get("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 COOKIES_FILE      = "cookies.txt"
 HISTORY_FILE      = os.getenv("HIST_FILE", "/data/history.json")
 
@@ -56,7 +57,7 @@ except ValueError:
     exit_fatal("TELEGRAM_GROUP_ID is not numeric")
 
 YOUTUBE_CHANNELS = [
-     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
+    "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
     "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",
     "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",
     "https://www.youtube.com/channel/UCTPID7oLcNr0H-VhAVIO8Jw",
@@ -187,6 +188,13 @@ def fetch_youtube_mp3(video_url):
             "sleep_interval_requests": 5,
             "quiet": True,
             "no_warnings": True,
+            "user_agent": USER_AGENT,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android"],
+                    "client": ["mweb"]
+                }
+            }
         }
         if os.path.isfile(COOKIES_FILE):
             opts["cookiefile"] = COOKIES_FILE
@@ -198,8 +206,9 @@ def fetch_youtube_mp3(video_url):
                 msg = str(e)
                 if any(phrase in msg for phrase in (
                     "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot"
+                    "Sign in to confirm you're not a bot", "PO Token"
                 )):
+                    logger.warning(f"Cannot download {video_url}: {msg}")
                     return None
                 raise
             if (info.get("release_timestamp") or 0) > time.time():
@@ -210,8 +219,9 @@ def fetch_youtube_mp3(video_url):
                 msg = str(e)
                 if any(phrase in msg for phrase in (
                     "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot"
+                    "Sign in to confirm you're not a bot", "PO Token"
                 )):
+                    logger.warning(f"Cannot download {video_url}: {msg}")
                     return None
                 raise
 
@@ -249,20 +259,27 @@ async def send_audio(buf, title):
 
 async def run_checks():
     if YTDLP_COOKIES_B64:
-        with open(COOKIES_FILE, "wb") as f:
-            f.write(base64.b64decode(YTDLP_COOKIES_B64))
+        try:
+            with open(COOKIES_FILE, "wb") as f:
+                f.write(base64.b64decode(YTDLP_COOKIES_B64))
+            logger.info("Successfully loaded cookies from environment variable")
+        except Exception as e:
+            logger.error(f"Failed to decode cookies: {e}")
 
     hist = load_history()
 
     # YouTube uniquement
     for vid, url, title in list_new_youtube_videos(hist):
         if vid not in hist["ytm"]:
-            buf = fetch_youtube_mp3(url)
-            if buf and await send_audio(buf, title):
-                hist["ytm"].append(vid)
-                save_history(hist)
-            if buf:
-                buf.close()
+            try:
+                buf = fetch_youtube_mp3(url)
+                if buf and await send_audio(buf, title):
+                    hist["ytm"].append(vid)
+                    save_history(hist)
+                if buf:
+                    buf.close()
+            except Exception as e:
+                logger.error(f"Error downloading {url}: {e}")
         await asyncio.sleep(3)
 
 async def main():
