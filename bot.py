@@ -56,7 +56,7 @@ except ValueError:
     exit_fatal("TELEGRAM_GROUP_ID is not numeric")
 
 YOUTUBE_CHANNELS = [
-   "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
+     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
     "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",
     "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",
     "https://www.youtube.com/channel/UCTPID7oLcNr0H-VhAVIO8Jw",
@@ -126,7 +126,6 @@ YOUTUBE_CHANNELS = [
     "https://youtube.com/channel/UCSNL1Dz6CfYzmfXFpSG24Aw",
     "https://youtube.com/channel/UCl0tfz41M64qoo64WS_Ce7g",
     "https://youtube.com/channel/UCSx2kcfRgmDovMzbw3lfmAA",
-    
 ]
 
 # ==== Historique ====
@@ -152,128 +151,74 @@ def now_kiritimati():
 
 def list_new_youtube_videos(hist):
     new = []
-    seen = set()                    # <— pour mémoriser les IDs déjà ajoutés
     now_dt = now_kiritimati()
-
     for url in YOUTUBE_CHANNELS:
         cid = url.rstrip("/").split("/")[-1]
-        feed = feedparser.parse(
-            f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}"
-        )
+        feed = feedparser.parse(f"https://www.youtube.com/feeds/videos.xml?channel_id={cid}")
         if feed.bozo:
             # flux malformé → on ignore
             continue
-
         for e in feed.entries:
             vid = getattr(e, "yt_videoid", None)
-            if (
-                not vid
-                or vid in hist["ytm"]    # déjà envoyé précédemment
-                or vid in seen           # déjà ajouté dans ce run
-            ):
+            if not vid or vid in hist["ytm"]:
                 continue
-
             if not e.get("published_parsed"):
                 continue
-
-            pub = datetime.datetime(
-                *e.published_parsed[:6], tzinfo=pytz.utc
-            ).astimezone(TIMEZONE)
-
+            pub = datetime.datetime(*e.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
             # vidéo publiée dans la dernière semaine
             if 0 <= (now_dt - pub).total_seconds() < 7 * 24 * 3600:
                 new.append((vid, e.link, e.title))
-                seen.add(vid)            # on marque l'ID comme vu
                 logger.info(f"→ New video found: {e.title}")
-
     return new
 
 def fetch_youtube_mp3(video_url):
-    """
-    Télécharge l'audio d'une vidéo YouTube en MP3 avec gestion avancée des erreurs
-    et support des cookies.
-    """
     logger.info(f"Downloading YT audio: {video_url}")
-    
     with tempfile.TemporaryDirectory() as td:
         opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': os.path.join(td, '%(id)s.%(ext)s'),
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
+            "format": "bestaudio/best",
+            "outtmpl": os.path.join(td, "%(id)s.%(ext)s"),
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192"
             }],
-            'ffmpeg_location': shutil.which('ffmpeg') or 'ffmpeg',
-            'retries': 10,
-            'fragment_retries': 10,
-            'extractor_retries': 3,
-            'sleep_interval': 5,
-            'max_sleep_interval': 30,
-            'ignoreerrors': True,
-            'no_warnings': True,
-            'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
-            'extract_flat': True,
-            'concurrent_fragment_downloads': 3,
+            "ffmpeg_location": shutil.which("ffmpeg") or "ffmpeg",
+            "retries": 3,
+            "sleep_interval_requests": 5,
+            "quiet": True,
+            "no_warnings": True,
         }
+        if os.path.isfile(COOKIES_FILE):
+            opts["cookiefile"] = COOKIES_FILE
 
-        error_messages = {
-            'login_required': lambda e: "Sign in to confirm" in str(e),
-            'premiere': lambda e: "premieres in" in str(e).lower(),
-            'age_restricted': lambda e: "age restricted" in str(e).lower(),
-            'private_video': lambda e: "Private video" in str(e),
-            'unavailable': lambda e: "Video unavailable" in str(e),
-        }
-
-        try:
-            with YoutubeDL(opts) as ydl:
-                # Phase 1: Extraction des métadonnées
-                try:
-                    info = ydl.extract_info(video_url, download=False)
-                    
-                    if not info:
-                        logger.warning("No video info available")
-                        return None
-
-                    # Vérification des restrictions
-                    if info.get('is_live') or info.get('live_status') == 'is_live':
-                        logger.warning("Skipping live stream")
-                        return None
-
-                    if (info.get('release_timestamp') or 0) > time.time():
-                        logger.warning("Skipping upcoming premiere")
-                        return None
-
-                    # Phase 2: Téléchargement
-                    result = ydl.download([video_url])
-                    if result != 0:
-                        raise DownloadError(f"Download failed with code {result}")
-
-                except DownloadError as e:
-                    for error_type, check_fn in error_messages.items():
-                        if check_fn(e):
-                            logger.warning(f"Skipping video ({error_type}): {str(e)[:200]}")
-                            return None
-                    raise
-
-            # Récupération du fichier MP3
-            mp3_files = [f for f in os.listdir(td) if f.endswith('.mp3')]
-            if not mp3_files:
-                logger.error("No MP3 file generated")
+        with YoutubeDL(opts) as ydl:
+            try:
+                info = ydl.extract_info(video_url, download=False)
+            except DownloadError as e:
+                msg = str(e)
+                if any(phrase in msg for phrase in (
+                    "Premieres in", "HTTP Error 401",
+                    "Sign in to confirm you're not a bot"
+                )):
+                    return None
+                raise
+            if (info.get("release_timestamp") or 0) > time.time():
                 return None
+            try:
+                ydl.download([video_url])
+            except DownloadError as e:
+                msg = str(e)
+                if any(phrase in msg for phrase in (
+                    "Premieres in", "HTTP Error 401",
+                    "Sign in to confirm you're not a bot"
+                )):
+                    return None
+                raise
 
-            mp3_path = os.path.join(td, mp3_files[0])
-            file_size = os.path.getsize(mp3_path)
-            
-            if file_size < 1024:  # 1KB minimum
-                logger.error(f"File too small ({file_size} bytes), likely corrupted")
-                return None
-
-            return BytesIO(open(mp3_path, 'rb').read())
-
-        except Exception as e:
-            logger.error(f"Unexpected error during download: {str(e)}")
+        files = [f for f in os.listdir(td) if f.endswith(".mp3")]
+        if not files:
             return None
+        return BytesIO(open(os.path.join(td, files[0]), "rb").read())
 
 # ==== Envoi Telegram ====
 
@@ -303,76 +248,23 @@ async def send_audio(buf, title):
 # ==== Boucle principale ====
 
 async def run_checks():
-    # Gestion des cookies
-    try:
-        if YTDLP_COOKIES_B64:
-            with open(COOKIES_FILE, 'wb') as f:
-                f.write(base64.b64decode(YTDLP_COOKIES_B64))
-            logger.info("YouTube cookies loaded successfully")
-    except Exception as e:
-        logger.error(f"Failed to load cookies: {e}")
+    if YTDLP_COOKIES_B64:
+        with open(COOKIES_FILE, "wb") as f:
+            f.write(base64.b64decode(YTDLP_COOKIES_B64))
 
     hist = load_history()
-    new_videos = list_new_youtube_videos(hist)
 
-    if not new_videos:
-        logger.info("No new videos found")
-        return
-
-    logger.info(f"Found {len(new_videos)} new videos to process")
-
-    for vid, url, title in new_videos:
-        try:
-            logger.info(f"Processing: {title[:50]}...")
-            
+    # YouTube uniquement
+    for vid, url, title in list_new_youtube_videos(hist):
+        if vid not in hist["ytm"]:
             buf = fetch_youtube_mp3(url)
-            if not buf:
-                logger.warning(f"Skipped video (download failed): {title[:50]}...")
-                continue
-
-            success = await send_audio(buf, title)
-            if success:
-                hist['ytm'].append(vid)
+            if buf and await send_audio(buf, title):
+                hist["ytm"].append(vid)
                 save_history(hist)
-                logger.info(f"Successfully sent: {title[:50]}...")
-            else:
-                logger.error(f"Failed to send: {title[:50]}...")
-
             if buf:
                 buf.close()
+        await asyncio.sleep(3)
 
-            await asyncio.sleep(5)  # Intervalle entre les vidéos
-
-        except Exception as e:
-            logger.error(f"Error processing video {title[:50]}...: {str(e)}")
-            continue
-
-    # Nettoyage des cookies
-    if os.path.exists(COOKIES_FILE):
-        try:
-            os.remove(COOKIES_FILE)
-            logger.debug("Cookies file cleaned up")
-        except:
-            pass
-def check_cookies_validity():
-    """Vérifie si les cookies sont valides en testant une requête"""
-    if not os.path.exists(COOKIES_FILE):
-        return False
-
-    test_url = "https://www.youtube.com/watch?v=BaW_jenozKc"  # Vidéo de test standard
-    opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'cookiefile': COOKIES_FILE,
-        'extract_flat': True
-    }
-
-    try:
-        with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(test_url, download=False)
-            return info is not None
-    except:
-        return False
 async def main():
     while True:
         logger.info("=== New check round ===")
