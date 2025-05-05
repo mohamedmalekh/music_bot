@@ -105,7 +105,10 @@ YOUTUBE_CHANNELS = [
     "https://youtube.com/channel/UCCYT3uqgB08dh5mS3h421kA",
     "https://youtube.com/channel/UCLbji6FWNYfRiD9Un4v9jiA",
     "https://youtube.com/channel/UCOCMlsYEf9Bj70R_tXtvJEg",
-    "https://youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ"
+    "https://youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ",
+    "https://youtube.com/channel/UCeBYRgPhy8kcRmIGQWKuqdQ",
+    "https://youtube.com/channel/UC5IkSn-EFsUu3XANYklXc8g",
+    "https://youtube.com/channel/UCanUjmTDohFr8OMpfk5xWBQ",
 ]
 
 # ==== Historique ====
