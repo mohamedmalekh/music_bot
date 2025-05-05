@@ -307,26 +307,29 @@ def fetch_spotify_mp3(track_url):
 
 # ==== Telegram Sender ====
 bot = Bot(TOKEN)
-async def send\_audio(buf, title):
-fn = "".join(c if c.isalnum() or c in " *-" else "*" for c in title)\[:60] + ".mp3"
-buf.name = fn
-buf.seek(0)
-for \_ in range(MAX\_RETRIES):
-try:
-await bot.send\_audio(
-chat\_id=GROUP\_ID,
-audio=InputFile(buf, filename=fn),
-caption=title,
-read\_timeout=60, write\_timeout=60, connect\_timeout=30
-)
-return True
-except RetryAfter as e:
-await asyncio.sleep(e.retry\_after + 1)
-except (NetworkError, TimedOut):
-await asyncio.sleep(RETRY\_DELAY)
-finally:
-buf.seek(0)
-return False
+async def send_audio(buf, title):
+    fn = "".join(c if c.isalnum() or c in " *-" else "*" for c in title)[:60] + ".mp3"
+    buf.name = fn
+    buf.seek(0)
+    for _ in range(MAX_RETRIES):
+        try:
+            await bot.send_audio(
+                chat_id=GROUP_ID,
+                audio=InputFile(buf, filename=fn),
+                caption=title,
+                read_timeout=60,
+                write_timeout=60,
+                connect_timeout=30,
+            )
+            return True
+        except RetryAfter as e:
+            await asyncio.sleep(e.retry_after + 1)
+        except (NetworkError, TimedOut):
+            await asyncio.sleep(RETRY_DELAY)
+        finally:
+            buf.seek(0)
+    return False
+
 async def run_checks():
     if YTDLP_COOKIES_B64:
         with open(COOKIES_FILE, "wb") as f:
