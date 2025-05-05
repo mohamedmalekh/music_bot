@@ -19,7 +19,13 @@ from telegram.error import RetryAfter, NetworkError, TimedOut
 
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from spotdl import Spotdl
+from spotdl.download.downloader import Downloader
+from spotdl.utils.config import get_config
+from spotdl.types.song import Song
+from spotdl.utils.spotify import SpotifyClient
+from spotdl.utils.search import get_songs
+from spotdl.utils.metadata import embed_metadata
+from spotdl.utils.formatter import create_file_name
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
@@ -44,7 +50,7 @@ COOKIES_FILE      = "cookies.txt"
 HISTORY_FILE      = os.getenv("HIST_FILE", "/data/history.json")
 
 TIMEZONE          = pytz.timezone("Pacific/Kiritimati")
-INTERVAL_SECONDS  = 15 * 60    # 30 minutes
+INTERVAL_SECONDS  = 15 * 60    # 15 minutes
 MAX_RETRIES       = 3
 RETRY_DELAY       = 10  # seconds
 
@@ -62,7 +68,7 @@ except ValueError:
     exit_fatal("TELEGRAM_GROUP_ID is not numeric")
 
 if not SPOTIFY_ID or not SPOTIFY_SECRET:
-    logger.warning("Spotify credentials manquantes – fonctionnalités Spotify désactivées")
+    logger.warning("Spotify credentials manquantes -- fonctionnalités Spotify désactivées")
 
 YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
@@ -111,15 +117,28 @@ YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UC7JpmOJscJcm-VsF6XnvYWg",
     "https://www.youtube.com/channel/UC8bEqtGJEUoYdWnti8k3R2Q",
     "https://www.youtube.com/channel/UC-bIUmH8gFA_lFkV2rJ6GMQ",
-"https://youtube.com/channel/UCCYT3uqgB08dh5mS3h421kA",
-"https://youtube.com/channel/UCLbji6FWNYfRiD9Un4v9jiA",
-"https://youtube.com/channel/UCOCMlsYEf9Bj70R_tXtvJEg",
-"https://youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ"
-    
+    "https://youtube.com/channel/UCCYT3uqgB08dh5mS3h421kA",
+    "https://youtube.com/channel/UCLbji6FWNYfRiD9Un4v9jiA",
+    "https://youtube.com/channel/UCOCMlsYEf9Bj70R_tXtvJEg",
+    "https://youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ"
 ]
 
 SPOTIFY_ARTISTS = [
     "https://open.spotify.com/artist/18QlLaFDdsOhib17zPVVsU?si=i9ZJsv62RLqmOEwdH4woAw",
+    "https://open.spotify.com/intl-fr/artist/2BBnFUgIaLHqoRYPfshoPb",
+    "https://open.spotify.com/intl-fr/artist/3MKpGPhBp9KeXjGooKHNDX",
+    "https://open.spotify.com/intl-fr/artist/3IW7ScrzXmPvZhB27hmfgy",
+    "https://open.spotify.com/intl-fr/artist/06z6NBx0H2PDzZqw8mPTDz",
+    "https://open.spotify.com/intl-fr/artist/6J3OrlKMbWMx60M7QuDJsf",
+    "https://open.spotify.com/intl-fr/artist/3Ofbm810VXiC3VaO76oMPP",
+    "https://open.spotify.com/intl-fr/artist/0GOx72r5AAEKRGQFn3xqXK",
+    "https://open.spotify.com/intl-fr/artist/5aj6jIshzpUh4WQvQ5EzKO",
+    "https://open.spotify.com/intl-fr/artist/5KrsMlfx8tbhq2GjZo0KP5",
+    "https://open.spotify.com/intl-fr/artist/5gs4Sm2WQUkcGeikMcVHbh",
+    "https://open.spotify.com/intl-fr/artist/6jGMq4yGs7aQzuGsMgVgZR",
+    "https://open.spotify.com/intl-fr/artist/0C8ZW7ezQVs4URX5aX7Kqx",
+    "https://open.spotify.com/intl-fr/artist/0VRj0yCOv2FXJNP47XQnx5",
+    "https://open.spotify.com/intl-fr/artist/1RyvyyTE3xzB2ZywiAwp0i",
 ]
 
 # ==== Historique ====
@@ -186,7 +205,7 @@ def fetch_youtube_mp3(video_url):
                 msg = str(e)
                 if any(phrase in msg for phrase in (
                     "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you’re not a bot"
+                    "Sign in to confirm you're not a bot"
                 )):
                     logger.info(f"Skipping unavailable video: {msg}")
                     return None
@@ -200,7 +219,7 @@ def fetch_youtube_mp3(video_url):
                 msg = str(e)
                 if any(phrase in msg for phrase in (
                     "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you’re not a bot"
+                    "Sign in to confirm you're not a bot"
                 )):
                     logger.info(f"Skipping after download error: {msg}")
                     return None
@@ -214,11 +233,16 @@ def fetch_youtube_mp3(video_url):
 
 # ==== Spotify ====
 try:
+    SpotifyClient.init(
+        client_id=SPOTIFY_ID,
+        client_secret=SPOTIFY_SECRET,
+        user_auth=False
+    )
     sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
         client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
-    spdl = Spotdl(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET, headless=True)
-except Exception:
-    sp = spdl = None
+except Exception as e:
+    logger.error(f"Spotify init error: {e}")
+    sp = None
 
 def list_new_spotify_tracks(hist):
     if not sp:
@@ -226,7 +250,7 @@ def list_new_spotify_tracks(hist):
     new = []
     now_dt = now_kiritimati()
     for url in SPOTIFY_ARTISTS:
-        aid = url.rstrip("/").split("/")[-1]
+        aid = url.rstrip("/").split("/")[-1].split("?")[0]
         try:
             albums = sp.artist_albums(aid, album_type="album,single", country="US", limit=20)
         except Exception as e:
@@ -241,25 +265,65 @@ def list_new_spotify_tracks(hist):
                 continue
             pub = TIMEZONE.localize(d)
             if 0 <= (now_dt - pub).total_seconds() < 7*24*3600:
-                for tr in sp.album_tracks(alb["id"]).get("items", []):
-                    tid = tr.get("id")
-                    link = tr["external_urls"]["spotify"]
-                    title = f"{', '.join(a['name'] for a in tr['artists'])} - {tr['name']}"
-                    if tid and link and tid not in hist["spotify"]:
-                        new.append((tid, link, title))
-                        logger.info(f"→ New track: {title}")
+                try:
+                    for tr in sp.album_tracks(alb["id"]).get("items", []):
+                        tid = tr.get("id")
+                        link = tr["external_urls"]["spotify"]
+                        title = f"{', '.join(a['name'] for a in tr['artists'])} - {tr['name']}"
+                        if tid and link and tid not in hist["spotify"]:
+                            new.append((tid, link, title))
+                            logger.info(f"→ New track: {title}")
+                except Exception as e:
+                    logger.error(f"Error getting album tracks: {e}")
+                    continue
     return new
 
 def fetch_spotify_mp3(track_url):
-    if not spdl:
-        raise RuntimeError("spotdl not initialized")
+    if not sp:
+        raise RuntimeError("Spotify not initialized")
+        
     logger.info(f"Downloading Spotify track: {track_url}")
     with tempfile.TemporaryDirectory() as td:
-        songs = spdl.search([track_url])
-        out = os.path.join(td, "t.mp3")
-        res = spdl.download_songs(songs, output=out)
-        path = res[0][1] if res and res[0] else None
-        return BytesIO(open(path, "rb").read()) if path else None
+        try:
+            # Configuration pour spotdl
+            config = get_config()
+            config["output"] = td
+            config["format"] = "mp3"
+            config["bitrate"] = "320k"
+            
+            # Obtenir les informations sur la chanson
+            songs = get_songs(track_url)
+            if not songs:
+                logger.error("No songs found for URL")
+                return None
+                
+            # Créer le downloader et télécharger
+            downloader = Downloader(config)
+            path = None
+            
+            # Télécharger la chanson
+            for song in songs:
+                # Créer le nom de fichier
+                filepath = os.path.join(td, create_file_name(song, config['output']) + '.mp3')
+                path = downloader.download_song(song)
+                
+                if path:
+                    logger.info(f"Download successful: {path}")
+                    # Vérifier que le fichier existe et est lisible
+                    if os.path.exists(path) and os.path.getsize(path) > 0:
+                        return BytesIO(open(path, "rb").read())
+                    else:
+                        logger.error(f"File doesn't exist or is empty: {path}")
+                        return None
+                else:
+                    logger.error("Download failed")
+                    return None
+                    
+        except Exception as e:
+            logger.exception(f"Error in Spotify download: {e}")
+            return None
+    
+    return None
 
 # ==== Telegram Sender ====
 bot = Bot(TOKEN)
@@ -306,19 +370,25 @@ async def run_checks():
     # Spotify
     for tid, url, title in list_new_spotify_tracks(hist):
         if tid not in hist["spotify"]:
-            buf = fetch_spotify_mp3(url)
-            if buf and await send_audio(buf, title):
-                hist["spotify"].append(tid)
-                save_history(hist)
-            if buf:
-                buf.close()
+            try:
+                buf = fetch_spotify_mp3(url)
+                if buf and await send_audio(buf, title):
+                    hist["spotify"].append(tid)
+                    save_history(hist)
+                if buf:
+                    buf.close()
+            except Exception as e:
+                logger.exception(f"Error processing Spotify track {url}: {e}")
         await asyncio.sleep(3)
 
 # ==== Continuously run every 30 minutes ====
 async def main():
     while True:
         logger.info("=== New check round ===")
-        await run_checks()
+        try:
+            await run_checks()
+        except Exception as e:
+            logger.exception(f"Error during check: {e}")
         logger.info(f"Sleeping {INTERVAL_SECONDS//60} min")
         await asyncio.sleep(INTERVAL_SECONDS)
 
