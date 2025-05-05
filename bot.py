@@ -281,47 +281,38 @@ def list_new_spotify_tracks(hist):
 def fetch_spotify_mp3(track_url):
     if not sp:
         raise RuntimeError("Spotify not initialized")
-        
+
     logger.info(f"Downloading Spotify track: {track_url}")
     with tempfile.TemporaryDirectory() as td:
         try:
-            # Configuration pour spotdl
             config = get_config()
             config["output"] = td
             config["format"] = "mp3"
             config["bitrate"] = "320k"
-            
-            # Obtenir les informations sur la chanson
-            songs = get_songs(track_url)
-            if not songs:
-                logger.error("No songs found for URL")
-                return None
-                
-            # Créer le downloader et télécharger
+
+            # --- Nouveau code : création du(s) Song object(s) ---
+            from spotdl.types.song import Song
+            songs = [Song.from_url(track_url)]
+
             downloader = Downloader(config)
-            path = None
-            
-            # Télécharger la chanson
+            buf = None
+
             for song in songs:
-                # Créer le nom de fichier
-                filepath = os.path.join(td, create_file_name(song, config['output']) + '.mp3')
                 path = downloader.download_song(song)
-                
-                if path:
+                if path and os.path.exists(path) and os.path.getsize(path) > 0:
+                    buf = BytesIO(open(path, "rb").read())
+                    buf.name = os.path.basename(path)
                     logger.info(f"Download successful: {path}")
-                    # Vérifier que le fichier existe et est lisible
-                    if os.path.exists(path) and os.path.getsize(path) > 0:
-                        return BytesIO(open(path, "rb").read())
-                    else:
-                        logger.error(f"File doesn't exist or is empty: {path}")
-                        return None
+                    break
                 else:
-                    logger.error("Download failed")
-                    return None
-                    
+                    logger.error(f"Download failed or file invalide: {path}")
+
+            return buf
+
         except Exception as e:
             logger.exception(f"Error in Spotify download: {e}")
             return None
+
     
     return None
 
