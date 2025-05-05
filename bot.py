@@ -172,9 +172,29 @@ def list_new_youtube_videos(hist):
                 logger.info(f"→ New video found: {e.title}")
     return new
 
+def get_po_token():
+    """
+    Attempt to extract a PO token from the cookies file
+    """
+    if not os.path.isfile(COOKIES_FILE):
+        return None
+        
+    try:
+        with open(COOKIES_FILE, 'r') as f:
+            for line in f:
+                if 'PREF' in line and 'po=' in line:
+                    parts = line.split()
+                    for part in parts:
+                        if part.startswith('po='):
+                            return part.split('=')[1].strip()
+    except Exception as e:
+        logger.error(f"Error extracting PO token: {e}")
+    return None
+
 def fetch_youtube_mp3(video_url):
     logger.info(f"Downloading YT audio: {video_url}")
     with tempfile.TemporaryDirectory() as td:
+        # Base options for yt-dlp
         opts = {
             "format": "bestaudio/best",
             "outtmpl": os.path.join(td, "%(id)s.%(ext)s"),
@@ -191,13 +211,25 @@ def fetch_youtube_mp3(video_url):
             "user_agent": USER_AGENT,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android"],
-                    "client": ["mweb"]
+                    "player_client": ["android", "web"],
+                    "client": ["mweb", "android", "web"]
                 }
             }
         }
+        
+        # Add cookies file if exists
         if os.path.isfile(COOKIES_FILE):
             opts["cookiefile"] = COOKIES_FILE
+            
+            # Try to extract and use PO token if available
+            po_token = get_po_token()
+            if po_token:
+                logger.info(f"Using PO token for download")
+                if "extractor_args" not in opts:
+                    opts["extractor_args"] = {}
+                if "youtube" not in opts["extractor_args"]:
+                    opts["extractor_args"]["youtube"] = {}
+                opts["extractor_args"]["youtube"]["po"] = [po_token]
 
         with YoutubeDL(opts) as ydl:
             try:
@@ -208,12 +240,16 @@ def fetch_youtube_mp3(video_url):
                     "Premieres in", "HTTP Error 401",
                     "Sign in to confirm you're not a bot", "PO Token"
                 )):
-                    logger.warning(f"Cannot download {video_url}: {msg}")
+                    logger.error(f"Cannot download {video_url}: {msg}")
                     return None
                 raise
+                
             if (info.get("release_timestamp") or 0) > time.time():
+                logger.info(f"Video is a premiere, skipping: {video_url}")
                 return None
+                
             try:
+                # Try with progressive download strategy
                 ydl.download([video_url])
             except DownloadError as e:
                 msg = str(e)
@@ -221,24 +257,49 @@ def fetch_youtube_mp3(video_url):
                     "Premieres in", "HTTP Error 401",
                     "Sign in to confirm you're not a bot", "PO Token"
                 )):
-                    logger.warning(f"Cannot download {video_url}: {msg}")
-                    return None
-                raise
+                    logger.error(f"Cannot download {video_url}: {msg}")
+                    # Try alternative download method
+                    try:
+                        logger.info(f"Trying alternative download method for: {video_url}")
+                        alt_opts = opts.copy()
+                        alt_opts["format"] = "bestaudio"
+                        alt_opts["extractor_args"]["youtube"]["player_client"] = ["web"]
+                        alt_opts["extractor_args"]["youtube"]["client"] = ["web"]
+                        with YoutubeDL(alt_opts) as alt_ydl:
+                            alt_ydl.download([video_url])
+                    except DownloadError as e2:
+                        logger.error(f"Alternative download also failed: {e2}")
+                        return None
+                else:
+                    raise
 
         files = [f for f in os.listdir(td) if f.endswith(".mp3")]
         if not files:
+            logger.warning(f"No MP3 files found after download: {video_url}")
             return None
-        return BytesIO(open(os.path.join(td, files[0]), "rb").read())
+            
+        try:
+            file_path = os.path.join(td, files[0])
+            with open(file_path, "rb") as f:
+                return BytesIO(f.read())
+        except Exception as e:
+            logger.error(f"Error reading downloaded file: {e}")
+            return None
 
 # ==== Envoi Telegram ====
 
 bot = Bot(TOKEN)
 
 async def send_audio(buf, title):
+    if not buf:
+        logger.warning(f"Cannot send empty audio buffer for: {title}")
+        return False
+        
     fn = "".join(c if c.isalnum() or c in " *-" else "*" for c in title)[:60] + ".mp3"
     buf.name = fn
     buf.seek(0)
-    for _ in range(MAX_RETRIES):
+    
+    for attempt in range(MAX_RETRIES):
         try:
             await bot.send_audio(
                 chat_id=GROUP_ID,
@@ -246,13 +307,21 @@ async def send_audio(buf, title):
                 caption=title,
                 read_timeout=60, write_timeout=60, connect_timeout=30
             )
+            logger.info(f"Successfully sent to Telegram: {title}")
             return True
         except RetryAfter as e:
+            logger.warning(f"Rate limited by Telegram, waiting {e.retry_after}s: {title}")
             await asyncio.sleep(e.retry_after + 1)
         except (NetworkError, TimedOut):
+            logger.warning(f"Network error, retrying after {RETRY_DELAY}s (attempt {attempt+1}/{MAX_RETRIES}): {title}")
+            await asyncio.sleep(RETRY_DELAY)
+        except Exception as e:
+            logger.error(f"Error sending to Telegram: {e} - {title}")
             await asyncio.sleep(RETRY_DELAY)
         finally:
             buf.seek(0)
+    
+    logger.error(f"Failed to send to Telegram after {MAX_RETRIES} attempts: {title}")
     return False
 
 # ==== Boucle principale ====
@@ -269,18 +338,25 @@ async def run_checks():
     hist = load_history()
 
     # YouTube uniquement
-    for vid, url, title in list_new_youtube_videos(hist):
+    new_videos = list_new_youtube_videos(hist)
+    logger.info(f"Found {len(new_videos)} new videos to process")
+    
+    for vid, url, title in new_videos:
         if vid not in hist["ytm"]:
             try:
                 buf = fetch_youtube_mp3(url)
                 if buf and await send_audio(buf, title):
                     hist["ytm"].append(vid)
                     save_history(hist)
+                    logger.info(f"Successfully processed and added to history: {title}")
+                else:
+                    logger.warning(f"Could not process video: {title}")
                 if buf:
                     buf.close()
             except Exception as e:
                 logger.error(f"Error downloading {url}: {e}")
-        await asyncio.sleep(3)
+            # Add delay between downloads to avoid rate limits
+            await asyncio.sleep(3)
 
 async def main():
     while True:
@@ -289,12 +365,15 @@ async def main():
             await run_checks()
         except Exception as e:
             logger.exception(f"Error during check: {e}")
+        
         logger.info(f"Sleeping {INTERVAL_SECONDS//60} min")
         await asyncio.sleep(INTERVAL_SECONDS)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Keyboard interrupt detected, exiting...")
     except Exception as e:
         logger.exception(f"Fatal error: {e}")
         sys.exit(1)
