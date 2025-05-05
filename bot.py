@@ -22,10 +22,9 @@ from spotipy.oauth2 import SpotifyClientCredentials
 
 # ==== SpotDL v4 imports ====
 from spotdl.download.downloader import Downloader
-from spotdl.utils.config import get_config
 from spotdl.types.song import Song
 from spotdl.utils.spotify import SpotifyClient
-from spotdl.utils.search import get_simple_songs  # <-- remplacé get_songs
+from spotdl.utils.search import get_simple_songs
 from spotdl.utils.metadata import embed_metadata
 from spotdl.utils.formatter import create_file_name
 
@@ -75,6 +74,32 @@ if not SPOTIFY_ID or not SPOTIFY_SECRET:
 
 YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
+    "https://www.youtube.com/channel/UC2emR2ejJMlvHdghCs3qOmQ",
+    "https://www.youtube.com/channel/UCldUc3lPRbibHFOomDrypXA",
+    "https://www.youtube.com/channel/UCTPID7oLcNr0H-VhAVIO8Jw",
+    "https://www.youtube.com/channel/UC7UizrbfFRtxIiEVQmdpUMA",
+    "https://www.youtube.com/channel/UCiqwANpD_MyogjjPJyrbB-A",
+    "https://www.youtube.com/channel/UCV_CsAy5CNBX_uwDQ7RMe1Q",
+    "https://www.youtube.com/channel/UC982yfxBCeh5WI9GRRlciww",
+    "https://www.youtube.com/channel/UCZ0YtLAC8H_jzj_7DlUolRA",
+    "https://www.youtube.com/channel/UCEaQBiiuwbn_UG64vCq04dA",
+    "https://www.youtube.com/channel/UCnBeOXkvCydq1dY2XAOJ5nw",
+    "https://www.youtube.com/channel/UCevzdl0zA0PecmG504ZMDLQ",
+    "https://www.youtube.com/channel/UC07OXjeAKhswIPEnoDj8qRQ",
+    "https://www.youtube.com/channel/UCVaWi8F2WIuV9Qk8ckvvlKg",
+    "https://www.youtube.com/channel/UCcU8Xk_PAVc7meXeCO_3jSA",
+    "https://www.youtube.com/channel/UCqz855ARgHtme-TxvHYQnCg",
+    "https://www.youtube.com/channel/UCIvyL_xpsPJoBsQshhrD0uQ",
+    "https://www.youtube.com/channel/UC0HVsMa3aau5tL3b4Cj3tHg",
+    "https://www.youtube.com/channel/UCZYI04uqZ8zeh993rG3-3VA",
+    "https://www.youtube.com/channel/UCyGtqW7TfOToaMY0A8GnXyA",
+    "https://www.youtube.com/channel/UC7ZuMv7r60Cwn7mRNlPC0LA",
+    "https://www.youtube.com/channel/UCtZbx-4oPQPt9UzFZ0svxbA",
+    "https://www.youtube.com/channel/UC9MM5kyom9q_bgwgIG72aig",
+    "https://www.youtube.com/channel/UC0X1a2gk3bq4v7j5r6x8Y9w",
+    "https://www.youtube.com/channel/UC-GI5LST5T3Gw93yZxjdFaw",
+    "https://www.youtube.com/channel/UCVrtt9YyQ7RaAe_cnn-bWWQ",
+    "https://www.youtube.com/channel/UCGDawZyaXbMbcr15My67wmw",
     "https://www.youtube.com/channel/UCgvLPnUn2PfKsdbqGVZAMPw",
     "https://www.youtube.com/channel/UCyB6xP6_c6ZCqC2b4wYAsLw",
     "https://www.youtube.com/channel/UCCB1Byx5yTbLpQaV-rlfmtA",
@@ -83,6 +108,21 @@ YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCtAhIlz3P9mzJ0jWxaZ8RYA",
     "https://www.youtube.com/channel/UCL8aaObaUA14kpqkztGfBYA",
     "https://www.youtube.com/channel/UCiqwANpD_MyogjjPJyrbB-A",
+    "https://www.youtube.com/channel/UCWcQRCPPW4qxa3OCUBBsuFw",
+    "https://www.youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ",
+    "https://www.youtube.com/channel/UCmMHQBby2vt2Qd9StcmBXXQ",
+    "https://www.youtube.com/channel/UC1Vribmny1eI62yYWux3rdQ",
+    "https://www.youtube.com/channel/UC0XcAvzmW91qsWor3Qg6r3g",
+    "https://www.youtube.com/channel/UCWWn6dtJhc5JcchjSzuEL8g",
+    "https://www.youtube.com/channel/UC0XcAvzmW91qsWor3Qg6r3g",
+    "https://www.youtube.com/channel/UCucdEPn-auvaUmBOJYuX7Og",
+    "https://www.youtube.com/channel/UC7JpmOJscJcm-VsF6XnvYWg",
+    "https://www.youtube.com/channel/UC8bEqtGJEUoYdWnti8k3R2Q",
+    "https://www.youtube.com/channel/UC-bIUmH8gFA_lFkV2rJ6GMQ",
+    "https://youtube.com/channel/UCCYT3uqgB08dh5mS3h421kA",
+    "https://youtube.com/channel/UCLbji6FWNYfRiD9Un4v9jiA",
+    "https://youtube.com/channel/UCOCMlsYEf9Bj70R_tXtvJEg",
+    "https://youtube.com/channel/UCtPSFgBQPsM7NW3iJpuqFuQ"
 ]
 
 SPOTIFY_ARTISTS = [
@@ -253,12 +293,16 @@ def fetch_spotify_mp3(track_url):
     logger.info(f"Downloading Spotify track: {track_url}")
     with tempfile.TemporaryDirectory() as td:
         try:
-            config = get_config()
-            config["output"] = td
-            config["format"] = "mp3"
-            config["bitrate"] = "320k"
+            # Construire la config manuellement plutôt que d'appeler get_config()
+            config = {
+                "output": td,
+                "format": "mp3",
+                "bitrate": "320k",
+                # Ajoutez d'autres clés si besoin, par ex. :
+                # "overwrite": False,
+                # "song_name": "%(id)s",
+            }
 
-            # Utilisation de get_simple_songs pour SpotDL v4
             songs = get_simple_songs([track_url])
             if not songs:
                 logger.error("No songs found for URL")
