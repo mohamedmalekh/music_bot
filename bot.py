@@ -190,69 +190,90 @@ def list_new_youtube_videos(hist):
 
 def fetch_youtube_mp3(video_url):
     """
-    Télécharge l'audio d'une vidéo YouTube en MP3,
-    en ignorant proprement les erreurs de type
-    "Sign in to confirm you’re not a bot".
+    Télécharge l'audio d'une vidéo YouTube en MP3 avec gestion avancée des erreurs
+    et support des cookies.
     """
     logger.info(f"Downloading YT audio: {video_url}")
+    
     with tempfile.TemporaryDirectory() as td:
         opts = {
-            "format": "bestaudio/best",
-            "outtmpl": os.path.join(td, "%(id)s.%(ext)s"),
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192"
+            'format': 'bestaudio/best',
+            'outtmpl': os.path.join(td, '%(id)s.%(ext)s'),
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
             }],
-            "ffmpeg_location": shutil.which("ffmpeg") or "ffmpeg",
-            "retries": 3,
-            "sleep_interval_requests": 5,
-            "quiet": True,
-            "no_warnings": True,
+            'ffmpeg_location': shutil.which('ffmpeg') or 'ffmpeg',
+            'retries': 10,
+            'fragment_retries': 10,
+            'extractor_retries': 3,
+            'sleep_interval': 5,
+            'max_sleep_interval': 30,
+            'ignoreerrors': True,
+            'no_warnings': True,
+            'cookiefile': COOKIES_FILE if os.path.exists(COOKIES_FILE) else None,
+            'extract_flat': True,
+            'concurrent_fragment_downloads': 3,
         }
-        if os.path.isfile(COOKIES_FILE):
-            opts["cookiefile"] = COOKIES_FILE
 
-        with YoutubeDL(opts) as ydl:
-            # Phase 1 : extraire les métadonnées sans télécharger
-            try:
-                info = ydl.extract_info(video_url, download=False)
-            except DownloadError as e:
-                msg = str(e).lower()
-                # Ignorer les erreurs de type “Sign in to confirm…”
-                if msg.startswith("sign in to confirm"):
-                    logger.warning(f"Skipping video (login required): {e}")
-                    return None
-                # Ignorer les autres erreurs connues
-                if "premieres in" in msg or "http error 401" in msg:
-                    logger.warning(f"Skipping video (unavailable): {e}")
-                    return None
-                # Pour toute autre DownloadError, on la remonte
-                raise
+        error_messages = {
+            'login_required': lambda e: "Sign in to confirm" in str(e),
+            'premiere': lambda e: "premieres in" in str(e).lower(),
+            'age_restricted': lambda e: "age restricted" in str(e).lower(),
+            'private_video': lambda e: "Private video" in str(e),
+            'unavailable': lambda e: "Video unavailable" in str(e),
+        }
 
-            # Si la vidéo est une future première, on ignore
-            if (info.get("release_timestamp") or 0) > time.time():
+        try:
+            with YoutubeDL(opts) as ydl:
+                # Phase 1: Extraction des métadonnées
+                try:
+                    info = ydl.extract_info(video_url, download=False)
+                    
+                    if not info:
+                        logger.warning("No video info available")
+                        return None
+
+                    # Vérification des restrictions
+                    if info.get('is_live') or info.get('live_status') == 'is_live':
+                        logger.warning("Skipping live stream")
+                        return None
+
+                    if (info.get('release_timestamp') or 0) > time.time():
+                        logger.warning("Skipping upcoming premiere")
+                        return None
+
+                    # Phase 2: Téléchargement
+                    result = ydl.download([video_url])
+                    if result != 0:
+                        raise DownloadError(f"Download failed with code {result}")
+
+                except DownloadError as e:
+                    for error_type, check_fn in error_messages.items():
+                        if check_fn(e):
+                            logger.warning(f"Skipping video ({error_type}): {str(e)[:200]}")
+                            return None
+                    raise
+
+            # Récupération du fichier MP3
+            mp3_files = [f for f in os.listdir(td) if f.endswith('.mp3')]
+            if not mp3_files:
+                logger.error("No MP3 file generated")
                 return None
 
-            # Phase 2 : téléchargement du flux audio
-            try:
-                ydl.download([video_url])
-            except DownloadError as e:
-                msg = str(e).lower()
-                if msg.startswith("sign in to confirm") or "premieres in" in msg or "http error 401" in msg:
-                    logger.warning(f"Skipping after download error: {e}")
-                    return None
-                raise
+            mp3_path = os.path.join(td, mp3_files[0])
+            file_size = os.path.getsize(mp3_path)
+            
+            if file_size < 1024:  # 1KB minimum
+                logger.error(f"File too small ({file_size} bytes), likely corrupted")
+                return None
 
-        # Récupérer le fichier .mp3 généré
-        mp3_files = [f for f in os.listdir(td) if f.endswith(".mp3")]
-        if not mp3_files:
-            logger.error("No MP3 generated")
+            return BytesIO(open(mp3_path, 'rb').read())
+
+        except Exception as e:
+            logger.error(f"Unexpected error during download: {str(e)}")
             return None
-
-        # Retourner un buffer prêt à être envoyé
-        return BytesIO(open(os.path.join(td, mp3_files[0]), "rb").read())
-
 
 # ==== Envoi Telegram ====
 
@@ -282,23 +303,76 @@ async def send_audio(buf, title):
 # ==== Boucle principale ====
 
 async def run_checks():
-    if YTDLP_COOKIES_B64:
-        with open(COOKIES_FILE, "wb") as f:
-            f.write(base64.b64decode(YTDLP_COOKIES_B64))
+    # Gestion des cookies
+    try:
+        if YTDLP_COOKIES_B64:
+            with open(COOKIES_FILE, 'wb') as f:
+                f.write(base64.b64decode(YTDLP_COOKIES_B64))
+            logger.info("YouTube cookies loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load cookies: {e}")
 
     hist = load_history()
+    new_videos = list_new_youtube_videos(hist)
 
-    # YouTube uniquement
-    for vid, url, title in list_new_youtube_videos(hist):
-        if vid not in hist["ytm"]:
+    if not new_videos:
+        logger.info("No new videos found")
+        return
+
+    logger.info(f"Found {len(new_videos)} new videos to process")
+
+    for vid, url, title in new_videos:
+        try:
+            logger.info(f"Processing: {title[:50]}...")
+            
             buf = fetch_youtube_mp3(url)
-            if buf and await send_audio(buf, title):
-                hist["ytm"].append(vid)
+            if not buf:
+                logger.warning(f"Skipped video (download failed): {title[:50]}...")
+                continue
+
+            success = await send_audio(buf, title)
+            if success:
+                hist['ytm'].append(vid)
                 save_history(hist)
+                logger.info(f"Successfully sent: {title[:50]}...")
+            else:
+                logger.error(f"Failed to send: {title[:50]}...")
+
             if buf:
                 buf.close()
-        await asyncio.sleep(3)
 
+            await asyncio.sleep(5)  # Intervalle entre les vidéos
+
+        except Exception as e:
+            logger.error(f"Error processing video {title[:50]}...: {str(e)}")
+            continue
+
+    # Nettoyage des cookies
+    if os.path.exists(COOKIES_FILE):
+        try:
+            os.remove(COOKIES_FILE)
+            logger.debug("Cookies file cleaned up")
+        except:
+            pass
+def check_cookies_validity():
+    """Vérifie si les cookies sont valides en testant une requête"""
+    if not os.path.exists(COOKIES_FILE):
+        return False
+
+    test_url = "https://www.youtube.com/watch?v=BaW_jenozKc"  # Vidéo de test standard
+    opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'cookiefile': COOKIES_FILE,
+        'extract_flat': True
+    }
+
+    try:
+        with YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(test_url, download=False)
+            return info is not None
+    except:
+        return False
 async def main():
     while True:
         logger.info("=== New check round ===")
