@@ -19,6 +19,8 @@ from telegram.error import RetryAfter, NetworkError, TimedOut
 
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
+
+# spotdl v4+: on utilise directement Downloader + Song
 from spotdl.download.downloader import Downloader
 from spotdl.types.song import Song
 
@@ -60,7 +62,7 @@ except ValueError:
     exit_fatal("TELEGRAM_GROUP_ID is not numeric")
 
 if not SPOTIFY_ID or not SPOTIFY_SECRET:
-    logger.warning("Spotify credentials manquantes -- fonctionnalités Spotify désactivées")
+    logger.warning("Spotify credentials missing — Spotify features disabled")
 
 YOUTUBE_CHANNELS = [
     "https://www.youtube.com/channel/UCmksE9VcSitikCJcs74N22A",
@@ -195,10 +197,7 @@ def fetch_youtube_mp3(video_url):
                 info = ydl.extract_info(video_url, download=False)
             except DownloadError as e:
                 msg = str(e)
-                if any(phrase in msg for phrase in (
-                    "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot"
-                )):
+                if any(phrase in msg for phrase in ("Premieres in", "HTTP Error 401", "Sign in to confirm you're not a bot")):
                     logger.info(f"Skipping unavailable video: {msg}")
                     return None
                 raise
@@ -209,10 +208,7 @@ def fetch_youtube_mp3(video_url):
                 ydl.download([video_url])
             except DownloadError as e:
                 msg = str(e)
-                if any(phrase in msg for phrase in (
-                    "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot"
-                )):
+                if any(phrase in msg for phrase in ("Premieres in", "HTTP Error 401", "Sign in to confirm you're not a bot")):
                     logger.info(f"Skipping after download error: {msg}")
                     return None
                 raise
@@ -223,26 +219,17 @@ def fetch_youtube_mp3(video_url):
             return None
         return BytesIO(open(os.path.join(td, files[0]), "rb").read())
 
-# ==== Spotify ====
-spotify_client = None
-if SPOTIFY_ID and SPOTIFY_SECRET:
-    try:
-        spotify_client = spotipy.Spotify(auth_manager=SpotifyClientCredentials(
-            client_id=SPOTIFY_ID, 
-            client_secret=SPOTIFY_SECRET
-        ))
-    except Exception as e:
-        logger.error(f"Erreur d'initialisation Spotify: {e}")
-
+# ==== Spotify functions ====
 def list_new_spotify_tracks(hist):
-    if not spotify_client:
+    if not SPOTIFY_ID or not SPOTIFY_SECRET:
         return []
+    sp = spotipy.Spotify(auth_manager=SpotifyClientCredentials(client_id=SPOTIFY_ID, client_secret=SPOTIFY_SECRET))
     new = []
     now_dt = now_kiritimati()
     for url in SPOTIFY_ARTISTS:
         aid = url.rstrip("/").split("/")[-1].split("?")[0]
         try:
-            albums = spotify_client.artist_albums(aid, album_type="album,single", country="US", limit=20)
+            albums = sp.artist_albums(aid, album_type="album,single", country="US", limit=20)
         except Exception as e:
             logger.error(f"Spotify API error: {e}")
             continue
@@ -256,7 +243,7 @@ def list_new_spotify_tracks(hist):
             pub = TIMEZONE.localize(d)
             if 0 <= (now_dt - pub).total_seconds() < 7*24*3600:
                 try:
-                    for tr in spotify_client.album_tracks(alb["id"]).get("items", []):
+                    for tr in sp.album_tracks(alb["id"]).get("items", []):
                         tid = tr.get("id")
                         link = tr["external_urls"]["spotify"]
                         title = f"{', '.join(a['name'] for a in tr['artists'])} - {tr['name']}"
@@ -269,11 +256,9 @@ def list_new_spotify_tracks(hist):
     return new
 
 def fetch_spotify_mp3(track_url):
-    if not spotify_client:
+    if not SPOTIFY_ID or not SPOTIFY_SECRET:
         return None
-
-    logger.info(f"Téléchargement Spotify: {track_url}")
-    
+    logger.info(f"Downloading Spotify: {track_url}")
     with tempfile.TemporaryDirectory() as td:
         try:
             config = {
@@ -285,24 +270,19 @@ def fetch_spotify_mp3(track_url):
                 "preserve_original_audio": False,
                 "threads": 4
             }
-
             downloader = Downloader(config)
-            
             song = Song.from_url(track_url)
             if not song:
-                raise ValueError("URL Spotify invalide")
-
-            download_result = downloader.download_song(song)
-            
-            if download_result and os.path.exists(download_result):
-                if os.path.getsize(download_result) < 1024:
-                    raise ValueError("Fichier trop petit")
-
-                with open(download_result, "rb") as f:
-                    return BytesIO(f.read())
-
+                logger.error("Invalid Spotify URL")
+                return None
+            path = downloader.download_song(song)
+            if not path or not os.path.exists(path) or os.path.getsize(path) < 1024:
+                logger.error("Spotify download failed or file too small")
+                return None
+            with open(path, "rb") as f:
+                return BytesIO(f.read())
         except Exception as e:
-            logger.error(f"Erreur de téléchargement Spotify: {str(e)}")
+            logger.exception(f"Spotify download error: {e}")
             return None
 
 # ==== Telegram Sender ====
@@ -317,9 +297,7 @@ async def send_audio(buf, title):
                 chat_id=GROUP_ID,
                 audio=InputFile(buf, filename=fn),
                 caption=title,
-                read_timeout=60,
-                write_timeout=60,
-                connect_timeout=30,
+                read_timeout=60, write_timeout=60, connect_timeout=30
             )
             return True
         except RetryAfter as e:
@@ -330,6 +308,7 @@ async def send_audio(buf, title):
             buf.seek(0)
     return False
 
+# ==== Main Loop ====
 async def run_checks():
     if YTDLP_COOKIES_B64:
         with open(COOKIES_FILE, "wb") as f:
@@ -337,7 +316,6 @@ async def run_checks():
 
     hist = load_history()
 
-    # YouTube (inchangé)
     for vid, url, title in list_new_youtube_videos(hist):
         if vid not in hist["ytm"]:
             buf = fetch_youtube_mp3(url)
@@ -348,26 +326,24 @@ async def run_checks():
                 buf.close()
         await asyncio.sleep(3)
 
-    # Spotify modifié
-    if spotify_client:
-        for tid, url, title in list_new_spotify_tracks(hist):
-            if tid not in hist["spotify"]:
-                try:
-                    buf = fetch_spotify_mp3(url)
-                    if buf and await send_audio(buf, title):
-                        hist["spotify"].append(tid)
-                        save_history(hist)
-                    if buf:
-                        buf.close()
-                except Exception as e:
-                    logger.exception(f"Erreur Spotify {url}: {e}")
-            await asyncio.sleep(3)
+    for tid, url, title in list_new_spotify_tracks(hist):
+        if tid not in hist["spotify"]:
+            buf = fetch_spotify_mp3(url)
+            if buf and await send_audio(buf, title):
+                hist["spotify"].append(tid)
+                save_history(hist)
+            if buf:
+                buf.close()
+        await asyncio.sleep(3)
 
-# ... (Le reste du code reste inchangé) ...
+async def main():
+    while True:
+        await run_checks()
+        await asyncio.sleep(INTERVAL_SECONDS)
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except Exception as e:
-        logger.exception(f"Erreur fatale: {e}")
+        logger.exception(f"Fatal error: {e}")
         sys.exit(1)
