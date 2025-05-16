@@ -211,15 +211,16 @@ def fetch_youtube_mp3(video_url):
                 "preferredquality": "192"
             }],
             "ffmpeg_location": shutil.which("ffmpeg") or "ffmpeg",
-            "retries": 3,
-            "sleep_interval_requests": 5,
+            "retries": 5,
+            "sleep_interval_requests": 3,
             "quiet": True,
             "no_warnings": True,
             "user_agent": USER_AGENT,
             "extractor_args": {
                 "youtube": {
                     "player_client": ["android", "web"],
-                    "client": ["mweb", "android", "web"]
+                    "client": ["android", "web"],
+                    "hl": ["en-US"]
                 }
             }
         }
@@ -232,32 +233,24 @@ def fetch_youtube_mp3(video_url):
             po_token = get_po_token()
             if po_token:
                 logger.info(f"Using PO token for download")
-                if "extractor_args" not in opts:
-                    opts["extractor_args"] = {}
                 if "youtube" not in opts["extractor_args"]:
                     opts["extractor_args"]["youtube"] = {}
                 opts["extractor_args"]["youtube"]["po"] = [po_token]
 
         with YoutubeDL(opts) as ydl:
             try:
-                info = ydl.extract_info(video_url, download=False)
-            except DownloadError as e:
-                msg = str(e)
-                if any(phrase in msg for phrase in (
-                    "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot", "PO Token"
-                )):
-                    logger.error(f"Cannot download {video_url}: {msg}")
+                info = ydl.extract_info(video_url, download=True)
+                
+                # Find downloaded MP3 file
+                files = [f for f in os.listdir(td) if f.endswith(".mp3")]
+                if not files:
+                    logger.warning(f"No MP3 files found after download: {video_url}")
                     return None
-                raise
-                
-            if (info.get("release_timestamp") or 0) > time.time():
-                logger.info(f"Video is a premiere, skipping: {video_url}")
-                return None
-                
-            try:
-                # Try with progressive download strategy
-                ydl.download([video_url])
+                    
+                file_path = os.path.join(td, files[0])
+                with open(file_path, "rb") as f:
+                    return BytesIO(f.read())
+                    
             except DownloadError as e:
                 msg = str(e)
                 if any(phrase in msg for phrase in (
@@ -265,16 +258,28 @@ def fetch_youtube_mp3(video_url):
                     "Sign in to confirm you're not a bot", "PO Token"
                 )):
                     logger.error(f"Cannot download {video_url}: {msg}")
-                    # Try alternative download method
+                    
+                    # Try alternative method with different settings
                     try:
                         logger.info(f"Trying alternative download method for: {video_url}")
                         alt_opts = opts.copy()
                         alt_opts["format"] = "bestaudio"
                         alt_opts["extractor_args"]["youtube"]["player_client"] = ["web"]
                         alt_opts["extractor_args"]["youtube"]["client"] = ["web"]
+                        
                         with YoutubeDL(alt_opts) as alt_ydl:
                             alt_ydl.download([video_url])
-                    except DownloadError as e2:
+                            
+                            # Find downloaded MP3 file
+                            files = [f for f in os.listdir(td) if f.endswith(".mp3")]
+                            if not files:
+                                logger.warning(f"No MP3 files found with alt method: {video_url}")
+                                return None
+                                
+                            file_path = os.path.join(td, files[0])
+                            with open(file_path, "rb") as f:
+                                return BytesIO(f.read())
+                    except Exception as e2:
                         logger.error(f"Alternative download also failed: {e2}")
                         return None
                 else:
