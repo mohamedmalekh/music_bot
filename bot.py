@@ -136,7 +136,8 @@ YOUTUBE_CHANNELS = [
 "https://www.youtube.com/channel/UCwKKwo3yWoVfPjlKN62KqQA",
 "https://www.youtube.com/channel/UCU6cE7pdJPc6DU2jSrKEsdQ",
 "https://www.youtube.com/channel/UCByOQJjav0CUDwxCk-jVNRQ",
-"https://www.youtube.com/channel/UCJWZKkiJalectBzxwpHm1Yg"
+"https://www.youtube.com/channel/UCJWZKkiJalectBzxwpHm1Yg",
+"https://youtube.com/channel/UCerASQL8J6FAiSi-ivCLsWw"
 ]
 
 # ==== Historique ====
