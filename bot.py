@@ -180,8 +180,8 @@ def list_new_youtube_videos(hist):
             if not e.get("published_parsed"):
                 continue
             pub = datetime.datetime(*e.published_parsed[:6], tzinfo=pytz.utc).astimezone(TIMEZONE)
-            # vidéo publiée dans la dernière semaine
-            if 0 <= (now_dt - pub).total_seconds() < 7 * 24 * 3600:
+            # vidéo publiée dans les dernières 48h (plus réactif)
+            if 0 <= (now_dt - pub).total_seconds() < 2 * 24 * 3600:
                 new.append((vid, e.link, e.title))
                 logger.info(f"→ New video found: {e.title}")
     return new
@@ -377,22 +377,13 @@ async def run_checks():
             # Add delay between downloads to avoid rate limits
             await asyncio.sleep(3)
 
-async def main():
-    while True:
-        logger.info("=== New check round ===")
-        try:
-            await run_checks()
-        except Exception as e:
-            logger.exception(f"Error during check: {e}")
-        
-        logger.info(f"Sleeping {INTERVAL_SECONDS//60} min")
-        await asyncio.sleep(INTERVAL_SECONDS)
-
 if __name__ == "__main__":
+    logger.info("=== Running single check ===")
     try:
-        asyncio.run(main())
+        asyncio.run(run_checks())
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt detected, exiting...")
     except Exception as e:
         logger.exception(f"Fatal error: {e}")
         sys.exit(1)
+    logger.info("=== Check complete ===")
