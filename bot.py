@@ -254,11 +254,16 @@ def get_po_token():
     return None
 
 def fetch_youtube_mp3(video_url):
+    # Skip YouTube Shorts
+    if '/shorts/' in video_url:
+        logger.info(f"Skipping YouTube Short: {video_url}")
+        return None
+        
     logger.info(f"Downloading YT audio: {video_url}")
     with tempfile.TemporaryDirectory() as td:
-        # Base options for yt-dlp
+        # Base options for yt-dlp - more flexible format selection
         opts = {
-            "format": "bestaudio/best",
+            "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=480]/best",
             "outtmpl": os.path.join(td, "%(id)s.%(ext)s"),
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
@@ -267,15 +272,19 @@ def fetch_youtube_mp3(video_url):
             }],
             "ffmpeg_location": shutil.which("ffmpeg") or "ffmpeg",
             "retries": 5,
-            "sleep_interval_requests": 3,
+            "fragment_retries": 5,
+            "sleep_interval_requests": 2,
             "quiet": True,
             "no_warnings": True,
             "user_agent": USER_AGENT,
+            "http_headers": {
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "web"],
-                    "client": ["android", "web"],
-                    "hl": ["en-US"]
+                    "player_client": ["ios", "android", "web"],
+                    "skip": ["dash", "hls"],
                 }
             }
         }
@@ -310,20 +319,25 @@ def fetch_youtube_mp3(video_url):
                 msg = str(e)
                 if any(phrase in msg for phrase in (
                     "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot", "PO Token"
+                    "Sign in to confirm you're not a bot", "PO Token",
+                    "Requested format is not available", "Video unavailable",
+                    "Private video", "This video is not available"
                 )):
-                    logger.error(f"Cannot download {video_url}: {msg}")
+                    logger.warning(f"Cannot download {video_url}: {msg[:100]}")
                     
                     # Try alternative method with different settings
                     try:
                         logger.info(f"Trying alternative download method for: {video_url}")
                         alt_opts = opts.copy()
-                        alt_opts["format"] = "bestaudio"
-                        alt_opts["extractor_args"]["youtube"]["player_client"] = ["web"]
-                        alt_opts["extractor_args"]["youtube"]["client"] = ["web"]
+                        alt_opts["format"] = "best[height<=720]/best"
+                        alt_opts["extractor_args"] = {
+                            "youtube": {
+                                "player_client": ["web", "mweb"],
+                            }
+                        }
                         
                         with YoutubeDL(alt_opts) as alt_ydl:
-                            alt_ydl.download([video_url])
+                            alt_ydl.extract_info(video_url, download=True)
                             
                             # Find downloaded MP3 file
                             files = [f for f in os.listdir(td) if f.endswith(".mp3")]
@@ -338,7 +352,8 @@ def fetch_youtube_mp3(video_url):
                         logger.error(f"Alternative download also failed: {e2}")
                         return None
                 else:
-                    raise
+                    logger.error(f"Download error: {msg[:100]}")
+                    return None
 
         files = [f for f in os.listdir(td) if f.endswith(".mp3")]
         if not files:
