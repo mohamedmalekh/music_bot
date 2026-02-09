@@ -286,7 +286,9 @@ def fetch_youtube_mp3(video_url):
                     "player_client": ["ios", "android", "web"],
                     "skip": ["dash", "hls"],
                 }
-            }
+            },
+            # Enable JS runtimes for YouTube format extraction (required in yt-dlp 2025+)
+            "js_runtimes": "node,deno,quickjs",
         }
         
         # Add cookies file if exists
