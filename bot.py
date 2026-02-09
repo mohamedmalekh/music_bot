@@ -269,7 +269,7 @@ def fetch_youtube_mp3(video_url):
         # Build command with android_vr client (works without JS runtime)
         cmd = [
             "yt-dlp",
-            "-f", "ba/b",  # bestaudio, fallback to best
+            "-v",  # Verbose for debugging
             "-x",  # Extract audio
             "--audio-format", "mp3",
             "--audio-quality", "192K",
@@ -277,7 +277,6 @@ def fetch_youtube_mp3(video_url):
             "--extractor-args", "youtube:player_client=android_vr",
             "--retries", "5",
             "--fragment-retries", "5",
-            "--no-warnings",
             video_url
         ]
         
@@ -285,11 +284,19 @@ def fetch_youtube_mp3(video_url):
         if os.path.isfile(COOKIES_FILE):
             cmd.extend(["--cookies", COOKIES_FILE])
         
+        logger.info(f"Running: {' '.join(cmd)}")
+        
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
+            # Log full output for debugging
+            if result.stdout:
+                logger.info(f"yt-dlp stdout: {result.stdout[:500]}")
+            if result.stderr:
+                logger.info(f"yt-dlp stderr: {result.stderr[:500]}")
+            
             if result.returncode != 0:
-                logger.warning(f"yt-dlp failed for {video_url}: {result.stderr[:200]}")
+                logger.warning(f"yt-dlp failed for {video_url}: {result.stderr[:300]}")
                 return None
             
             # Find downloaded MP3 file
