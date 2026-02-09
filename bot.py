@@ -17,7 +17,7 @@ import feedparser
 from telegram import Bot, InputFile
 from telegram.error import RetryAfter, NetworkError, TimedOut
 
-import requests
+from pytubefix import YouTube
 
 # ==== LOGGER ====
 
@@ -253,61 +253,40 @@ def get_po_token():
     return None
 
 def fetch_youtube_mp3(video_url):
-    """Download YouTube audio using Cobalt API (works from datacenters)"""
-    import requests
+    """Download YouTube audio using pytubefix (works from datacenters)"""
     
     # Skip YouTube Shorts
     if '/shorts/' in video_url:
         logger.info(f"Skipping YouTube Short: {video_url}")
         return None
         
-    logger.info(f"Downloading via Cobalt API: {video_url}")
-    
-    # Cobalt API endpoint
-    COBALT_API = "https://api.cobalt.tools/api/json"
-    
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    
-    payload = {
-        "url": video_url,
-        "aFormat": "mp3",
-        "isAudioOnly": True,
-        "audioBitrate": "192",
-    }
+    logger.info(f"Downloading via pytubefix: {video_url}")
     
     try:
-        # Request download URL from Cobalt
-        response = requests.post(COBALT_API, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        data = response.json()
+        yt = YouTube(video_url)
+        logger.info(f"Title: {yt.title}")
         
-        if data.get("status") == "error":
-            logger.warning(f"Cobalt error for {video_url}: {data.get('text', 'Unknown error')}")
+        # Get best audio stream
+        audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
+        
+        if not audio_stream:
+            logger.warning(f"No audio stream found for: {video_url}")
             return None
         
-        # Get the audio URL
-        audio_url = data.get("url")
-        if not audio_url:
-            logger.warning(f"No audio URL in Cobalt response for {video_url}")
-            return None
+        logger.info(f"Audio stream: {audio_stream.abr} - {audio_stream.mime_type}")
         
-        logger.info(f"Got audio URL from Cobalt, downloading...")
+        # Download to BytesIO
+        buffer = BytesIO()
+        audio_stream.stream_to_buffer(buffer)
+        buffer.seek(0)
         
-        # Download the audio file
-        audio_response = requests.get(audio_url, timeout=120)
-        audio_response.raise_for_status()
+        size_mb = len(buffer.getvalue()) / 1024 / 1024
+        logger.info(f"Downloaded {size_mb:.2f} MB")
         
-        logger.info(f"Downloaded {len(audio_response.content) / 1024 / 1024:.2f} MB")
-        return BytesIO(audio_response.content)
+        return buffer
         
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Cobalt API error for {video_url}: {e}")
-        return None
     except Exception as e:
-        logger.error(f"Download error for {video_url}: {e}")
+        logger.error(f"pytubefix error for {video_url}: {e}")
         return None
 
 # ==== Envoi Telegram ====
