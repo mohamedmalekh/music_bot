@@ -261,9 +261,9 @@ def fetch_youtube_mp3(video_url):
         
     logger.info(f"Downloading YT audio: {video_url}")
     with tempfile.TemporaryDirectory() as td:
-        # Base options for yt-dlp - more flexible format selection
+        # Simplified format - let yt-dlp choose the best available format
         opts = {
-            "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=480]/best",
+            "format": "ba/b",  # bestaudio, fallback to best
             "outtmpl": os.path.join(td, "%(id)s.%(ext)s"),
             "postprocessors": [{
                 "key": "FFmpegExtractAudio",
@@ -274,8 +274,8 @@ def fetch_youtube_mp3(video_url):
             "retries": 5,
             "fragment_retries": 5,
             "sleep_interval_requests": 2,
-            "quiet": True,
-            "no_warnings": True,
+            "quiet": False,  # Enable output for debugging
+            "no_warnings": False,
             "user_agent": USER_AGENT,
             "http_headers": {
                 "Accept-Language": "en-US,en;q=0.9",
@@ -283,12 +283,9 @@ def fetch_youtube_mp3(video_url):
             },
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["ios", "android", "web"],
-                    "skip": ["dash", "hls"],
+                    "player_client": ["android_vr"],  # Works without JS runtime
                 }
             },
-            # Enable JS runtimes for YouTube format extraction (required in yt-dlp 2025+)
-            "js_runtimes": "node,deno,quickjs",
         }
         
         # Add cookies file if exists
