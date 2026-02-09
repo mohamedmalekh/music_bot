@@ -1,4 +1,4 @@
 python-telegram-bot==20.3
-yt-dlp>=2026.1.29
+requests>=2.31.0
 feedparser==6.0.11
 pytz==2024.1

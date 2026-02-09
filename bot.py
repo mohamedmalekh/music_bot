@@ -17,8 +17,7 @@ import feedparser
 from telegram import Bot, InputFile
 from telegram.error import RetryAfter, NetworkError, TimedOut
 
-from yt_dlp import YoutubeDL
-from yt_dlp.utils import DownloadError
+import requests
 
 # ==== LOGGER ====
 
@@ -254,74 +253,62 @@ def get_po_token():
     return None
 
 def fetch_youtube_mp3(video_url):
+    """Download YouTube audio using Cobalt API (works from datacenters)"""
+    import requests
+    
     # Skip YouTube Shorts
     if '/shorts/' in video_url:
         logger.info(f"Skipping YouTube Short: {video_url}")
         return None
         
-    logger.info(f"Downloading YT audio: {video_url}")
+    logger.info(f"Downloading via Cobalt API: {video_url}")
     
-    import subprocess
+    # Cobalt API endpoint
+    COBALT_API = "https://api.cobalt.tools/api/json"
     
-    with tempfile.TemporaryDirectory() as td:
-        output_template = os.path.join(td, "%(id)s.%(ext)s")
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "url": video_url,
+        "aFormat": "mp3",
+        "isAudioOnly": True,
+        "audioBitrate": "192",
+    }
+    
+    try:
+        # Request download URL from Cobalt
+        response = requests.post(COBALT_API, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
+        data = response.json()
         
-        # Build command with android_vr client (works without JS runtime)
-        cmd = [
-            "yt-dlp",
-            "-v",  # Verbose for debugging
-            "-x",  # Extract audio
-            "--audio-format", "mp3",
-            "--audio-quality", "192K",
-            "-o", output_template,
-            "--extractor-args", "youtube:player_client=android_vr",
-            "--retries", "5",
-            "--fragment-retries", "5",
-            video_url
-        ]
-        
-        # Add cookies if available
-        if os.path.isfile(COOKIES_FILE):
-            cmd.extend(["--cookies", COOKIES_FILE])
-        
-        logger.info(f"Running: {' '.join(cmd)}")
-        
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            
-            # Log full output for debugging (combine stdout and stderr)
-            full_output = f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
-            for line in full_output.split('\n')[:30]:  # Log first 30 lines
-                logger.info(f"yt-dlp: {line}")
-            
-            if result.returncode != 0:
-                logger.warning(f"yt-dlp failed (code {result.returncode}) for {video_url}")
-                return None
-            
-            # Find downloaded MP3 file
-            files = [f for f in os.listdir(td) if f.endswith(".mp3")]
-            if not files:
-                logger.warning(f"No MP3 files found after download: {video_url}")
-                return None
-                
-            file_path = os.path.join(td, files[0])
-            with open(file_path, "rb") as f:
-                return BytesIO(f.read())
-                
-        except subprocess.TimeoutExpired:
-            logger.error(f"Download timeout for {video_url}")
+        if data.get("status") == "error":
+            logger.warning(f"Cobalt error for {video_url}: {data.get('text', 'Unknown error')}")
             return None
-        except Exception as e:
-            logger.error(f"Download error for {video_url}: {e}")
+        
+        # Get the audio URL
+        audio_url = data.get("url")
+        if not audio_url:
+            logger.warning(f"No audio URL in Cobalt response for {video_url}")
             return None
-            
-        try:
-            file_path = os.path.join(td, files[0])
-            with open(file_path, "rb") as f:
-                return BytesIO(f.read())
-        except Exception as e:
-            logger.error(f"Error reading downloaded file: {e}")
-            return None
+        
+        logger.info(f"Got audio URL from Cobalt, downloading...")
+        
+        # Download the audio file
+        audio_response = requests.get(audio_url, timeout=120)
+        audio_response.raise_for_status()
+        
+        logger.info(f"Downloaded {len(audio_response.content) / 1024 / 1024:.2f} MB")
+        return BytesIO(audio_response.content)
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Cobalt API error for {video_url}: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Download error for {video_url}: {e}")
+        return None
 
 # ==== Envoi Telegram ====
 
