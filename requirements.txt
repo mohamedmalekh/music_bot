@@ -1,6 +1,4 @@
 python-telegram-bot==20.3
-spotdl==4.2.11
-spotipy>=2.24.0
 yt-dlp>=2026.1.29
 feedparser==6.0.11
 pytz==2024.1
