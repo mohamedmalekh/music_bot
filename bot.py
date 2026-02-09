@@ -260,103 +260,53 @@ def fetch_youtube_mp3(video_url):
         return None
         
     logger.info(f"Downloading YT audio: {video_url}")
+    
+    import subprocess
+    
     with tempfile.TemporaryDirectory() as td:
-        # Simplified format - let yt-dlp choose the best available format
-        opts = {
-            "format": "ba/b",  # bestaudio, fallback to best
-            "outtmpl": os.path.join(td, "%(id)s.%(ext)s"),
-            "postprocessors": [{
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "192"
-            }],
-            "ffmpeg_location": shutil.which("ffmpeg") or "ffmpeg",
-            "retries": 5,
-            "fragment_retries": 5,
-            "sleep_interval_requests": 2,
-            "quiet": False,  # Enable output for debugging
-            "no_warnings": False,
-            "user_agent": USER_AGENT,
-            "http_headers": {
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            },
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["android_vr"],  # Works without JS runtime
-                }
-            },
-        }
+        output_template = os.path.join(td, "%(id)s.%(ext)s")
         
-        # Add cookies file if exists
+        # Build command with android_vr client (works without JS runtime)
+        cmd = [
+            "yt-dlp",
+            "-f", "ba/b",  # bestaudio, fallback to best
+            "-x",  # Extract audio
+            "--audio-format", "mp3",
+            "--audio-quality", "192K",
+            "-o", output_template,
+            "--extractor-args", "youtube:player_client=android_vr",
+            "--retries", "5",
+            "--fragment-retries", "5",
+            "--no-warnings",
+            video_url
+        ]
+        
+        # Add cookies if available
         if os.path.isfile(COOKIES_FILE):
-            opts["cookiefile"] = COOKIES_FILE
+            cmd.extend(["--cookies", COOKIES_FILE])
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
-            # Try to extract and use PO token if available
-            po_token = get_po_token()
-            if po_token:
-                logger.info(f"Using PO token for download")
-                if "youtube" not in opts["extractor_args"]:
-                    opts["extractor_args"]["youtube"] = {}
-                opts["extractor_args"]["youtube"]["po"] = [po_token]
-
-        with YoutubeDL(opts) as ydl:
-            try:
-                info = ydl.extract_info(video_url, download=True)
+            if result.returncode != 0:
+                logger.warning(f"yt-dlp failed for {video_url}: {result.stderr[:200]}")
+                return None
+            
+            # Find downloaded MP3 file
+            files = [f for f in os.listdir(td) if f.endswith(".mp3")]
+            if not files:
+                logger.warning(f"No MP3 files found after download: {video_url}")
+                return None
                 
-                # Find downloaded MP3 file
-                files = [f for f in os.listdir(td) if f.endswith(".mp3")]
-                if not files:
-                    logger.warning(f"No MP3 files found after download: {video_url}")
-                    return None
-                    
-                file_path = os.path.join(td, files[0])
-                with open(file_path, "rb") as f:
-                    return BytesIO(f.read())
-                    
-            except DownloadError as e:
-                msg = str(e)
-                if any(phrase in msg for phrase in (
-                    "Premieres in", "HTTP Error 401",
-                    "Sign in to confirm you're not a bot", "PO Token",
-                    "Requested format is not available", "Video unavailable",
-                    "Private video", "This video is not available"
-                )):
-                    logger.warning(f"Cannot download {video_url}: {msg[:100]}")
-                    
-                    # Try alternative method with different settings
-                    try:
-                        logger.info(f"Trying alternative download method for: {video_url}")
-                        alt_opts = opts.copy()
-                        alt_opts["format"] = "best[height<=720]/best"
-                        alt_opts["extractor_args"] = {
-                            "youtube": {
-                                "player_client": ["android_vr"],  # Works without JS runtime
-                            }
-                        }
-                        
-                        with YoutubeDL(alt_opts) as alt_ydl:
-                            alt_ydl.extract_info(video_url, download=True)
-                            
-                            # Find downloaded MP3 file
-                            files = [f for f in os.listdir(td) if f.endswith(".mp3")]
-                            if not files:
-                                logger.warning(f"No MP3 files found with alt method: {video_url}")
-                                return None
-                                
-                            file_path = os.path.join(td, files[0])
-                            with open(file_path, "rb") as f:
-                                return BytesIO(f.read())
-                    except Exception as e2:
-                        logger.error(f"Alternative download also failed: {e2}")
-                        return None
-                else:
-                    logger.error(f"Download error: {msg[:100]}")
-                    return None
-
-        files = [f for f in os.listdir(td) if f.endswith(".mp3")]
-        if not files:
-            logger.warning(f"No MP3 files found after download: {video_url}")
+            file_path = os.path.join(td, files[0])
+            with open(file_path, "rb") as f:
+                return BytesIO(f.read())
+                
+        except subprocess.TimeoutExpired:
+            logger.error(f"Download timeout for {video_url}")
+            return None
+        except Exception as e:
+            logger.error(f"Download error for {video_url}: {e}")
             return None
             
         try:
