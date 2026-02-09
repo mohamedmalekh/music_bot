@@ -140,7 +140,55 @@ YOUTUBE_CHANNELS = [
 "https://youtube.com/channel/UCerASQL8J6FAiSi-ivCLsWw",
 "https://www.youtube.com/channel/UCFsI9RqD2JbWBlbPmYdCO-Q",
 "https://youtube.com/channel/UC02NBzPa9c0-xkTSlIBIZXA",
-"https://youtube.com/channel/UCVUSovN1Bqc9AlsypegNoQw"
+"https://youtube.com/channel/UCVUSovN1Bqc9AlsypegNoQw",
+    # ===== TUNISIE =====
+    "https://www.youtube.com/channel/UCV9x1Bo83ByXbqJga1ZxaJg",  # Balti
+    "https://www.youtube.com/channel/UCIY5O-yLf1sNyQ0AKXXQMjQ",  # Kafon
+    "https://www.youtube.com/channel/UCI6ER2eyvJ098z_qrHZiZdA",  # Klay BBJ
+    "https://www.youtube.com/channel/UCmi3NLdmjBRbzVqooFlHOkw",  # Hamzaoui Med Amine
+    "https://www.youtube.com/channel/UCEFjoZ6dQajhDeLdqfb941Q",  # Akram Mag
+    # ===== MAROC =====
+    "https://www.youtube.com/channel/UCTdY7Fw0YMHCJ09jKTGy9Xw",  # 7liwa
+    "https://www.youtube.com/channel/UCT1V9yrD20tpY39d-cnAU1g",  # Madd
+    "https://www.youtube.com/channel/UCgckq95ZcUeCZWlY7UlxgWA",  # Inkonnu
+    "https://www.youtube.com/channel/UCSj3fnfKHCI5G2VYUcx3DHg",  # Lbenj
+    "https://www.youtube.com/channel/UC0k5ulMTxHlUzzJRnOtBRMA",  # Gnawi
+    # ===== ALGERIE =====
+    "https://www.youtube.com/channel/UCz6JjQtnK9XjMwKuqlEkRxw",  # Soolking
+    "https://www.youtube.com/channel/UCzbsyyZ05INu78miPEAUDUQ",  # Didine Canon 16
+    "https://www.youtube.com/channel/UCylPPp7MGoNmK6Gx9WBpjdA",  # Lacrim
+    "https://www.youtube.com/channel/UCxdVRT5-dLcp4junZpcdLQg",  # Rim'k
+    # ===== FRANCE =====
+    "https://www.youtube.com/channel/UCNtD7oDVld6YeaYV7tCXo1A",  # Booba
+    "https://www.youtube.com/channel/UCL6gZm742-Xhxp4Cwa6kqpw",  # PLK
+    "https://www.youtube.com/channel/UC-69vhXlCa3XHbF8JHCQHfg",  # Aya Nakamura
+    "https://www.youtube.com/channel/UC3nGUU-1Vmx17Oh7vVhC4Lg",  # SDM
+    "https://www.youtube.com/channel/UC8pflMI7DubRMqdqP768p4w",  # Maes
+    "https://www.youtube.com/channel/UCCSFseZ6DfCtVO8giGp7GfA",  # Koba LaD
+    "https://www.youtube.com/channel/UCtjvAqI4o-aWtGDYFzkGvRw",  # Freeze Corleone
+    "https://www.youtube.com/channel/UCeBu6AFsaPVElhFzlj5hetg",  # SCH
+    "https://www.youtube.com/channel/UCIA9xFRtkDVBGH_BHvmDK6g",  # Werenoi
+    "https://www.youtube.com/channel/UCBAkHJepWR2HTPE65iruihw",  # Ziak
+    "https://www.youtube.com/channel/UCelI_bl2bVS1AFKaZEx44Vw",  # Kaaris
+    "https://www.youtube.com/channel/UCdurFHA7O22wzSKpQCcW4eg",  # Laylow
+    "https://www.youtube.com/channel/UCP9zhgBhlIwgF5UEf3Pmj8Q",  # Leto
+    # ===== USA =====
+    "https://www.youtube.com/channel/UCtxdfwb9wfkoGocVUAJ-Bmg",  # Travis Scott
+    "https://www.youtube.com/channel/UCOjEHmBKwdS7joWpW0VrXkg",  # 21 Savage
+    "https://www.youtube.com/channel/UCKC11MOR51CLg4JpYj8jb4g",  # Metro Boomin
+    "https://www.youtube.com/channel/UC3lBXcrKFnFAFkfVk5WuKcQ",  # Kendrick Lamar
+    "https://www.youtube.com/channel/UCnc6db-y3IU7CkT_yeVXdVg",  # J. Cole
+    "https://www.youtube.com/channel/UCVS88tG_NYgxF6Udnx2815Q",  # Lil Baby
+    "https://www.youtube.com/channel/UCAkIMkEaa9sZmjcy7mfd5lQ",  # Gunna
+    "https://www.youtube.com/channel/UC652oRUvX1onwrrZ8ADJRPw",  # Playboi Carti
+    "https://www.youtube.com/channel/UCV4UK9LNNLViFP4qZA_Wmfw",  # Yeat
+    "https://www.youtube.com/channel/UCq0Hi7HpCBCNeKpdKKcQqGQ",  # Baby Keem
+    # ===== ESPAGNE / LATIN =====
+    "https://www.youtube.com/channel/UCmBA_wu8xGg1OfOkfW13Q0Q",  # Bad Bunny
+    "https://www.youtube.com/channel/UCLk8IJ1TwI7Xl7UUfAD8xPQ",  # Myke Towers
+    "https://www.youtube.com/channel/UCRI7hheejBbWS6etTNwMT0g",  # Anuel AA
+    "https://www.youtube.com/channel/UC_Av98lDjf5KvFib5elhpYg",  # Rauw Alejandro
+    "https://www.youtube.com/channel/UCjIA3wwhi0QjSOXAZwOXbPA",  # Ozuna
 ]
 
 # ==== Historique ====
