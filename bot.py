@@ -331,7 +331,7 @@ def fetch_youtube_mp3(video_url):
                         alt_opts["format"] = "best[height<=720]/best"
                         alt_opts["extractor_args"] = {
                             "youtube": {
-                                "player_client": ["web", "mweb"],
+                                "player_client": ["android_vr"],  # Works without JS runtime
                             }
                         }
                         
