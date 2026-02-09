@@ -39,7 +39,7 @@ COOKIES_FILE      = "cookies.txt"
 HISTORY_FILE      = os.getenv("HIST_FILE", "/data/history.json")
 
 TIMEZONE          = pytz.timezone("Pacific/Kiritimati")
-INTERVAL_SECONDS  = 15 * 60    # 15 minutes
+INTERVAL_SECONDS  = 2 * 60    # 2 minutes (faster for dedicated server)
 MAX_RETRIES       = 3
 RETRY_DELAY       = 10  # seconds
 
@@ -377,13 +377,33 @@ async def run_checks():
             # Add delay between downloads to avoid rate limits
             await asyncio.sleep(3)
 
+async def main():
+    """Run bot continuously with interval"""
+    logger.info("=== Bot started (continuous mode) ===")
+    while True:
+        try:
+            await run_checks()
+            logger.info(f"Sleeping for {INTERVAL_SECONDS} seconds...")
+            await asyncio.sleep(INTERVAL_SECONDS)
+        except Exception as e:
+            logger.exception(f"Error in run_checks: {e}")
+            await asyncio.sleep(60)  # Wait 1 min on error
+
 if __name__ == "__main__":
-    logger.info("=== Running single check ===")
-    try:
-        asyncio.run(run_checks())
-    except KeyboardInterrupt:
-        logger.info("Keyboard interrupt detected, exiting...")
-    except Exception as e:
-        logger.exception(f"Fatal error: {e}")
-        sys.exit(1)
-    logger.info("=== Check complete ===")
+    # Check if running on GitHub Actions (single run) or server (continuous)
+    if os.environ.get("GITHUB_ACTIONS"):
+        logger.info("=== Running single check (GitHub Actions) ===")
+        try:
+            asyncio.run(run_checks())
+        except KeyboardInterrupt:
+            logger.info("Keyboard interrupt detected, exiting...")
+        except Exception as e:
+            logger.exception(f"Fatal error: {e}")
+            sys.exit(1)
+        logger.info("=== Check complete ===")
+    else:
+        # Continuous mode for Railway/Render
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            logger.info("Bot stopped by user")
