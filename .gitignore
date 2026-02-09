@@ -1,0 +1,19 @@
+# Credentials - NEVER commit these
+cookies.txt
+cookies_base64.txt
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
