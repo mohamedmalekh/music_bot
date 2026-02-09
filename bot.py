@@ -289,14 +289,13 @@ def fetch_youtube_mp3(video_url):
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
             
-            # Log full output for debugging
-            if result.stdout:
-                logger.info(f"yt-dlp stdout: {result.stdout[:500]}")
-            if result.stderr:
-                logger.info(f"yt-dlp stderr: {result.stderr[:500]}")
+            # Log full output for debugging (combine stdout and stderr)
+            full_output = f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
+            for line in full_output.split('\n')[:30]:  # Log first 30 lines
+                logger.info(f"yt-dlp: {line}")
             
             if result.returncode != 0:
-                logger.warning(f"yt-dlp failed for {video_url}: {result.stderr[:300]}")
+                logger.warning(f"yt-dlp failed (code {result.returncode}) for {video_url}")
                 return None
             
             # Find downloaded MP3 file
